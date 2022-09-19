@@ -1,19 +1,18 @@
 package datasalad.util;
 
-import datasalad.util.stream.DatasetStream;
-
 import java.util.Map;
+import java.util.stream.Stream;
 
 public class Dataset {
-    private final Map<Column<?>, Integer> indexByColumn;
+    private final Header header;
     private final Comparable<?>[][] rows;
     
-    private Dataset(Map<Column<?>, Integer> indexByColumn, Comparable<?>[][] rows) {
-        this.indexByColumn = indexByColumn;
+    Dataset(Header header, Comparable<?>[][] rows) {
+        this.header = header;
         this.rows = rows;
     }
     
     public DatasetStream stream() {
-        throw new UnsupportedOperationException();
+        return new DatasetStream(header, Stream.of(rows).map(arr -> new Row(header, arr)));
     }
 }

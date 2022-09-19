@@ -1,21 +1,83 @@
-package datasalad.util.stream;
-
-import datasalad.util.Row;
+package datasalad.util;
 
 import java.util.*;
 import java.util.function.*;
 import java.util.stream.*;
 
 public class DatasetStream implements Stream<Row> {
+    private final Header header;
     private final Stream<Row> stream;
     
-    DatasetStream(Stream<Row> stream) {
+    DatasetStream(Header header, Stream<Row> stream) {
+        this.header = header;
         this.stream = stream;
     }
     
+    // --- new ---
+    
+    public static <T> Aux<T> aux(Stream<T> stream) {
+        // Chain a no-op, so that the stream will throw if re-used after this call.
+        Stream<T> s = stream.peek(it -> {});
+        return new Aux<>(s);
+    }
+    
+    public static AuxInt aux(IntStream stream) {
+        // Chain a no-op, so that the stream will throw if re-used after this call.
+        IntStream s = stream.peek(it -> {});
+        return new AuxInt(s);
+    }
+    
+    public static AuxLong aux(LongStream stream) {
+        // Chain a no-op, so that the stream will throw if re-used after this call.
+        LongStream s = stream.peek(it -> {});
+        return new AuxLong(s);
+    }
+    
+    public static AuxDouble aux(DoubleStream stream) {
+        // Chain a no-op, so that the stream will throw if re-used after this call.
+        DoubleStream s = stream.peek(it -> {});
+        return new AuxDouble(s);
+    }
+    
+    public Dataset toDataset() {
+        return new Dataset(header, stream.map(row -> row.data).toArray(Comparable[][]::new));
+    }
+    
+    public Aux<Row> aux() {
+        // Chain a no-op, so that the stream will throw if re-used after this call.
+        Stream<Row> s = stream.peek(it -> {});
+        return new Aux<>(s);
+    }
+    
+    public DatasetStream select(Consumer<SelectAPI> config) {
+        return this;
+    }
+    
+    public DatasetStream aggregate(Consumer<AggregateAPI> config) {
+        return this;
+    }
+    
+    public DatasetStream join(DatasetStream right, Consumer<JoinAPI> config) {
+        return this;
+    }
+    
+    public DatasetStream leftJoin(DatasetStream right, Consumer<JoinAPI> config) {
+        return this;
+    }
+    
+    public DatasetStream rightJoin(DatasetStream right, Consumer<JoinAPI> config) {
+        return this;
+    }
+    
+    public DatasetStream fullJoin(DatasetStream right, Consumer<JoinAPI> config) {
+        return this;
+    }
+    
+    // --- old ---
+    
     @Override
     public DatasetStream filter(Predicate<? super Row> predicate) {
-        return new DatasetStream(stream.filter(predicate));
+        return new DatasetStream(header, stream.filter(predicate));
     }
     
     @Override
@@ -60,34 +122,34 @@ public class DatasetStream implements Stream<Row> {
     
     @Override
     public DatasetStream distinct() {
-        return new DatasetStream(stream.distinct());
+        return new DatasetStream(header, stream.distinct());
     }
     
     @Override
     public DatasetStream sorted() {
         // TODO: Should Row be Comparable?
         //  Problem: column order matters, but is not well-defined.
-        return new DatasetStream(stream.sorted());
+        return new DatasetStream(header, stream.sorted());
     }
     
     @Override
     public DatasetStream sorted(Comparator<? super Row> comparator) {
-        return new DatasetStream(stream.sorted(comparator));
+        return new DatasetStream(header, stream.sorted(comparator));
     }
     
     @Override
     public DatasetStream peek(Consumer<? super Row> action) {
-        return new DatasetStream(stream.peek(action));
+        return new DatasetStream(header, stream.peek(action));
     }
     
     @Override
     public DatasetStream limit(long maxSize) {
-        return new DatasetStream(stream.limit(maxSize));
+        return new DatasetStream(header, stream.limit(maxSize));
     }
     
     @Override
     public DatasetStream skip(long n) {
-        return new DatasetStream(stream.skip(n));
+        return new DatasetStream(header, stream.skip(n));
     }
     
     @Override
@@ -193,25 +255,25 @@ public class DatasetStream implements Stream<Row> {
     @Override
     public DatasetStream sequential() {
         Stream<Row> s = stream.sequential();
-        return s == stream ? this : new DatasetStream(s);
+        return s == stream ? this : new DatasetStream(header, s);
     }
     
     @Override
     public DatasetStream parallel() {
         Stream<Row> s = stream.parallel();
-        return s == stream ? this : new DatasetStream(s);
+        return s == stream ? this : new DatasetStream(header, s);
     }
     
     @Override
     public DatasetStream unordered() {
         Stream<Row> s = stream.unordered();
-        return s == stream ? this : new DatasetStream(s);
+        return s == stream ? this : new DatasetStream(header, s);
     }
     
     @Override
     public DatasetStream onClose(Runnable closeHandler) {
         Stream<Row> s = stream.onClose(closeHandler);
-        return s == stream ? this : new DatasetStream(s);
+        return s == stream ? this : new DatasetStream(header, s);
     }
     
     @Override
@@ -225,6 +287,47 @@ public class DatasetStream implements Stream<Row> {
         Aux(Stream<T> stream) {
             this.stream = stream;
         }
+        
+        // --- new ---
+        
+        public DatasetStream mapToDataset(Consumer<MapAPI<T>> config) {
+            MapAPI<T> api = new MapAPI<>();
+            config.accept(api);
+    
+            int size = api.mapperByColumn.size();
+            List<Column<?>> columns = new ArrayList<>(size);
+            List<Function<?, ?>> mappers = new ArrayList<>(size);
+            api.mapperByColumn.forEach((column, mapper) -> {
+                columns.add(column);
+                mappers.add(mapper);
+            });
+            
+            Header nextHeader = new Header(columns);
+            Stream<Row> nextStream = stream.map(it -> {
+                Comparable<?>[] arr = new Comparable[size];
+                for (int i = 0; i < size; i++) {
+                    @SuppressWarnings("unchecked")
+                    Function<T, Comparable<?>> mapper = (Function<T, Comparable<?>>) mappers.get(i);
+                    arr[i] = mapper.apply(it);
+                }
+                return new Row(nextHeader, arr);
+            });
+            
+            return new DatasetStream(nextHeader, nextStream);
+        }
+        
+        public <R, A> Aux<R> lazyCollect(Collector<? super T, A, R> collector) {
+            // Chain a no-op, so that the stream will throw if re-used after this call.
+            Stream<T> s = stream.peek(it -> {});
+            Stream<R> next = StreamSupport.stream(
+                () -> Collections.singleton(s.collect(collector)).spliterator(),
+                Spliterator.SIZED | Spliterator.SUBSIZED | Spliterator.IMMUTABLE | Spliterator.DISTINCT | Spliterator.ORDERED,
+                s.isParallel()
+            ).onClose(s::close);
+            return new Aux<>(next);
+        }
+        
+        // --- old ---
     
         @Override
         public Aux<T> filter(Predicate<? super T> predicate) {

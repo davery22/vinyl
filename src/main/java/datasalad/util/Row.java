@@ -1,21 +1,20 @@
 package datasalad.util;
 
 import java.util.Arrays;
-import java.util.Map;
 
 public class Row {
-    private final Map<Column<?>, Integer> indexByColumn;
-    private final Comparable<?>[] row;
+    private final Header header;
+    final Comparable<?>[] data;
     
-    Row(Map<Column<?>, Integer> indexByColumn, Comparable<?>[] row) {
-        this.indexByColumn = indexByColumn;
-        this.row = row;
+    Row(Header header, Comparable<?>[] data) {
+        this.header = header;
+        this.data = data;
     }
     
     @SuppressWarnings("unchecked")
     public <T extends Comparable<T>> T get(Column<T> column) {
-        int index = indexByColumn.get(column);
-        return (T) row[index];
+        int index = header.indexByColumn.get(column);
+        return (T) data[index];
     }
     
     @Override
@@ -24,14 +23,14 @@ public class Row {
             return true;
         if (!(o instanceof Row))
             return false;
-        Row r = (Row) o;
-        if (indexByColumn != r.indexByColumn) // Different Dataset
+        Row other = (Row) o;
+        if (!header.equals(other.header))
             return false;
-        return Arrays.equals(row, r.row);
+        return Arrays.equals(data, other.data);
     }
     
     @Override
     public int hashCode() {
-        return Arrays.hashCode(row);
+        return Arrays.hashCode(data);
     }
 }

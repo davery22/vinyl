@@ -5,8 +5,8 @@ import java.util.function.*;
 import java.util.stream.*;
 
 public class DatasetStream implements Stream<Row> {
-    private final Header header;
-    private final Stream<Row> stream;
+    final Header header;
+    final Stream<Row> stream;
     
     DatasetStream(Header header, Stream<Row> stream) {
         this.header = header;
@@ -50,7 +50,7 @@ public class DatasetStream implements Stream<Row> {
     }
     
     public DatasetStream select(Consumer<SelectAPI> config) {
-        return this;
+        return new SelectAPI(this).accept(config);
     }
     
     public DatasetStream aggregate(Consumer<AggregateAPI> config) {
@@ -122,14 +122,30 @@ public class DatasetStream implements Stream<Row> {
     
     @Override
     public DatasetStream distinct() {
-        return new DatasetStream(header, stream.distinct());
+        class HeadlessEq {
+            final Row row;
+            
+            HeadlessEq(Row row) {
+                this.row = row;
+            }
+            
+            @Override
+            public boolean equals(Object o) {
+                return Arrays.equals(row.data, ((HeadlessEq) o).row.data);
+            }
+            
+            @Override
+            public int hashCode() {
+                return Arrays.hashCode(row.data);
+            }
+        }
+        
+        return new DatasetStream(header, stream.map(HeadlessEq::new).distinct().map(h -> h.row));
     }
     
     @Override
     public DatasetStream sorted() {
-        // TODO: Should Row be Comparable?
-        //  Problem: column order matters, but is not well-defined.
-        return new DatasetStream(header, stream.sorted());
+        return new DatasetStream(header, stream.sorted(Row.HEADLESS_COMPARATOR));
     }
     
     @Override
@@ -282,7 +298,7 @@ public class DatasetStream implements Stream<Row> {
     }
     
     public static class Aux<T> implements Stream<T> {
-        private final Stream<T> stream;
+        final Stream<T> stream;
         
         Aux(Stream<T> stream) {
             this.stream = stream;
@@ -291,29 +307,7 @@ public class DatasetStream implements Stream<Row> {
         // --- new ---
         
         public DatasetStream mapToDataset(Consumer<MapAPI<T>> config) {
-            MapAPI<T> api = new MapAPI<>();
-            config.accept(api);
-    
-            int size = api.mapperByColumn.size();
-            List<Column<?>> columns = new ArrayList<>(size);
-            List<Function<?, ?>> mappers = new ArrayList<>(size);
-            api.mapperByColumn.forEach((column, mapper) -> {
-                columns.add(column);
-                mappers.add(mapper);
-            });
-            
-            Header nextHeader = new Header(columns);
-            Stream<Row> nextStream = stream.map(it -> {
-                Comparable<?>[] arr = new Comparable[size];
-                for (int i = 0; i < size; i++) {
-                    @SuppressWarnings("unchecked")
-                    Function<T, Comparable<?>> mapper = (Function<T, Comparable<?>>) mappers.get(i);
-                    arr[i] = mapper.apply(it);
-                }
-                return new Row(nextHeader, arr);
-            });
-            
-            return new DatasetStream(nextHeader, nextStream);
+            return new MapAPI<>(this).accept(config);
         }
         
         public <R, A> Aux<R> lazyCollect(Collector<? super T, A, R> collector) {

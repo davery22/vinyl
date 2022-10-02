@@ -1,6 +1,5 @@
 package datasalad.util;
 
-import java.util.Map;
 import java.util.stream.Stream;
 
 public class Dataset {
@@ -13,6 +12,6 @@ public class Dataset {
     }
     
     public DatasetStream stream() {
-        return new DatasetStream(header, Stream.of(rows).map(arr -> new Row(header, arr)));
+        return new DatasetStream(header, Stream.of(rows).map(data -> new Row(header, data)));
     }
 }

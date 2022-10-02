@@ -1,18 +1,20 @@
 package datasalad.util;
 
-import java.util.IdentityHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
-public class Header {
+class Header {
     final Map<Column<?>, Integer> indexByColumn;
-    private final List<Column<?>> columns;
+    final List<Column<?>> columns;
     
-    Header(List<Column<?>> columns) {
-        this.columns = columns;
-        this.indexByColumn = new IdentityHashMap<>();
-        for (int i = 0; i < columns.size(); i++)
-            indexByColumn.put(columns.get(i), i);
+    Header(Map<Column<?>, Integer> indexByColumn) {
+        Column<?>[] cols = new Column[indexByColumn.size()];
+        indexByColumn.forEach((col, i) -> cols[i] = col);
+        this.columns = Arrays.asList(cols);
+        this.indexByColumn = indexByColumn;
+    }
+    
+    public int indexOf(Column<?> column) {
+        return indexByColumn.get(column);
     }
     
     @Override

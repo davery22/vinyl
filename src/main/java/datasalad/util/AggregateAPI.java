@@ -7,6 +7,14 @@ import java.util.stream.Collector;
 public class AggregateAPI {
     AggregateAPI() {} // Prevent default public constructor
     
+    public AggregateAPI tempKey(Column<?> column) {
+        return this;
+    }
+    
+    public <T extends Comparable<T>> AggregateAPI tempKey(Function<? super Row, ? extends T> mapper) {
+        return this;
+    }
+    
     public AggregateAPI key(Column<?> column) {
         return this;
     }

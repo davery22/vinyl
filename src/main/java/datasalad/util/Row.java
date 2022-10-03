@@ -41,4 +41,15 @@ public class Row {
     public int hashCode() {
         return Arrays.hashCode(data);
     }
+    
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder("Row{");
+        String delimiter = "";
+        for (int i = 0; i < data.length; i++) {
+            sb.append(delimiter).append(header.columns.get(i)).append('=').append(data[i]);
+            delimiter = ", ";
+        }
+        return sb.append('}').toString();
+    }
 }

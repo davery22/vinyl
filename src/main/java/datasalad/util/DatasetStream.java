@@ -54,7 +54,7 @@ public class DatasetStream implements Stream<Row> {
     }
     
     public DatasetStream aggregate(Consumer<AggregateAPI> config) {
-        return this;
+        return new AggregateAPI(this).accept(config);
     }
     
     public DatasetStream join(DatasetStream right, Consumer<JoinAPI> config) {

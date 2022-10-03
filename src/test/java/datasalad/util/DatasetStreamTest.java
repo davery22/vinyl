@@ -4,9 +4,9 @@ import org.junit.jupiter.api.Test;
 
 import java.util.IntSummaryStatistics;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
-import static java.util.stream.Collectors.*;
+import static java.util.stream.Collectors.summarizingInt;
+import static java.util.stream.Collectors.summingInt;
 
 public class DatasetStreamTest {
     private static final Column<Integer> COL_A = new Column<>("A");
@@ -18,7 +18,7 @@ public class DatasetStreamTest {
     
     @Test
     void test() {
-        Dataset data = DatasetStream.aux(IntStream.range(0, 1000)).boxed()
+        Dataset data = DatasetStream.aux(IntStream.range(0, 100)).boxed()
             .mapToDataset($->$
                 .col(COL_A, it -> it + 1)
                 .col(COL_B, it -> it + 2)
@@ -40,14 +40,16 @@ public class DatasetStreamTest {
             )
             .toDataset();
         
-        Dataset selfJoined = data.stream()
-            .join(data.stream(), $$->$$
-                .on($-> $.left(COL_A).eq($.right(COL_B)))
-                .andSelect($->$
-                    .lcol(COL_A)
-                    .rallExcept(COL_A)
-                )
-            )
-            .toDataset();
+        data.stream().forEach(System.out::println);
+        
+//        Dataset selfJoined = data.stream()
+//            .join(data.stream(), $$->$$
+//                .on($-> $.left(COL_A).eq($.right(COL_B)))
+//                .andSelect($->$
+//                    .lcol(COL_A)
+//                    .rallExcept(COL_A)
+//                )
+//            )
+//            .toDataset();
     }
 }

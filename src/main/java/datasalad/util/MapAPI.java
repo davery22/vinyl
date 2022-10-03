@@ -1,9 +1,6 @@
 package datasalad.util;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -11,33 +8,36 @@ import java.util.stream.Stream;
 public class MapAPI<T> {
     private final DatasetStream.Aux<T> stream;
     private final Map<Column<?>, Integer> indexByColumn = new HashMap<>();
-    private final List<ColumnMapper<T>> mappers = new ArrayList<>();
+    private final List<ColumnMapper<T>> definitions = new ArrayList<>();
     
     MapAPI(DatasetStream.Aux<T> stream) {
         this.stream = stream;
     }
     
     public <U extends Comparable<U>> MapAPI<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
-        int index = indexByColumn.computeIfAbsent(column, k -> mappers.size());
-        ColumnMapper<T> colMapper = new ColumnMapper<>(index, mapper);
-        if (index == mappers.size()) {
-            mappers.add(colMapper);
-        } else {
-            mappers.set(index, colMapper);
-        }
+        int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
+        ColumnMapper<T> def = new ColumnMapper<>(index, mapper);
+        if (index == definitions.size())
+            definitions.add(def);
+        else
+            definitions.set(index, def);
         return this;
     }
     
     DatasetStream accept(Consumer<MapAPI<T>> config) {
         config.accept(this);
     
-        int size = mappers.size();
-        Header nextHeader = new Header(indexByColumn);
+        // Avoid picking up side-effects from bad-actor callbacks.
+        Map<Column<?>, Integer> finalIndexByColumn = Map.copyOf(indexByColumn);
+        List<ColumnMapper<T>> finalMappers = List.copyOf(definitions);
+        
+        // Prep the row-by-row transformation.
+        int size = definitions.size();
+        Header nextHeader = new Header(finalIndexByColumn);
         Stream<Row> nextStream = stream.stream.map(it -> {
             Comparable<?>[] arr = new Comparable[size];
-            for (ColumnMapper<T> mapper : mappers) {
+            for (ColumnMapper<T> mapper : finalMappers)
                 mapper.accept(it, arr);
-            }
             return new Row(nextHeader, arr);
         });
     

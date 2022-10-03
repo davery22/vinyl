@@ -8,7 +8,7 @@ import java.util.stream.Stream;
 public class SelectAPI {
     private final DatasetStream stream;
     private final Map<Column<?>, Integer> indexByColumn = new HashMap<>();
-    private final List<Object> mappers = new ArrayList<>();
+    private final List<Object> definitions = new ArrayList<>();
     
     SelectAPI(DatasetStream stream) {
         this.stream = stream;
@@ -16,13 +16,12 @@ public class SelectAPI {
     
     public SelectAPI all() {
         stream.header.columns.forEach(column -> {
-            int index = indexByColumn.computeIfAbsent(column, k -> mappers.size());
-            RowMapper mapper = new RowMapper(index, row -> row.get(column));
-            if (index == mappers.size()) {
-                mappers.add(mapper);
-            } else {
-                mappers.set(index, mapper);
-            }
+            int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
+            RowMapper def = new RowMapper(index, row -> row.get(column));
+            if (index == definitions.size())
+                definitions.add(def);
+            else
+                definitions.set(index, def);
         });
         return this;
     }
@@ -32,36 +31,33 @@ public class SelectAPI {
         stream.header.columns.forEach(column -> {
             if (excluded.contains(column))
                 return;
-            int index = indexByColumn.computeIfAbsent(column, k -> mappers.size());
-            RowMapper mapper = new RowMapper(index, row -> row.get(column));
-            if (index == mappers.size()) {
-                mappers.add(mapper);
-            } else {
-                mappers.set(index, mapper);
-            }
+            int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
+            RowMapper def = new RowMapper(index, row -> row.get(column));
+            if (index == definitions.size())
+                definitions.add(def);
+            else
+                definitions.set(index, def);
         });
         return this;
     }
     
     public SelectAPI col(Column<?> column) {
-        int index = indexByColumn.computeIfAbsent(column, k -> mappers.size());
-        RowMapper mapper = new RowMapper(index, row -> row.get(column));
-        if (index == mappers.size()) {
-            mappers.add(mapper);
-        } else {
-            mappers.set(index, mapper);
-        }
+        int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
+        RowMapper def = new RowMapper(index, row -> row.get(column));
+        if (index == definitions.size())
+            definitions.add(def);
+        else
+            definitions.set(index, def);
         return this;
     }
     
     public <T extends Comparable<T>> SelectAPI col(Column<T> column, Function<? super Row, ? extends T> mapper) {
-        int index = indexByColumn.computeIfAbsent(column, k -> mappers.size());
-        RowMapper rowMapper = new RowMapper(index, mapper);
-        if (index == mappers.size()) {
-            mappers.add(rowMapper);
-        } else {
-            mappers.set(index, rowMapper);
-        }
+        int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
+        RowMapper def = new RowMapper(index, mapper);
+        if (index == definitions.size())
+            definitions.add(def);
+        else
+            definitions.set(index, def);
         return this;
     }
     
@@ -73,29 +69,30 @@ public class SelectAPI {
     DatasetStream accept(Consumer<SelectAPI> config) {
         config.accept(this);
     
+        // Avoid picking up side-effects from bad-actor callbacks.
         // Final mappers will combine ObjMapper children into their parent.
+        Map<Column<?>, Integer> finalIndexByColumn = Map.copyOf(indexByColumn);
         List<Mapper> finalMappers = new ArrayList<>();
-        Set<Cols<?>> parents = new HashSet<>();
-        for (Object mapper : mappers) {
-            if (mapper instanceof RowMapper) {
-                finalMappers.add((RowMapper) mapper);
-            } else {
-                Cols<?>.ObjMapper child = (Cols<?>.ObjMapper) mapper;
+        Set<Cols<?>> seenParents = new HashSet<>();
+        for (Object def : definitions) {
+            if (def instanceof RowMapper)
+                finalMappers.add((RowMapper) def);
+            else {
+                assert def instanceof Cols.ObjMapper;
+                Cols<?>.ObjMapper child = (Cols<?>.ObjMapper) def;
                 child.addToParent();
-                if (parents.add(child.parent())) {
+                if (seenParents.add(child.parent()))
                     finalMappers.add(child.parent());
-                }
             }
         }
         
         // Prep the row-by-row transformation.
-        int size = finalMappers.size();
-        Header nextHeader = new Header(indexByColumn);
+        int size = definitions.size();
+        Header nextHeader = new Header(finalIndexByColumn);
         Stream<Row> nextStream = stream.stream.map(it -> {
             Comparable<?>[] arr = new Comparable[size];
-            for (Mapper mapper : finalMappers) {
+            for (Mapper mapper : finalMappers)
                 mapper.accept(it, arr);
-            }
             return new Row(nextHeader, arr);
         });
     
@@ -130,13 +127,12 @@ public class SelectAPI {
         }
         
         public <U extends Comparable<U>> Cols<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
-            int index = indexByColumn.computeIfAbsent(column, k -> mappers.size());
-            ObjMapper objMapper = new ObjMapper(index, mapper);
-            if (index == mappers.size()) {
-                mappers.add(objMapper);
-            } else {
-                mappers.set(index, objMapper);
-            }
+            int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
+            ObjMapper def = new ObjMapper(index, mapper);
+            if (index == definitions.size())
+                definitions.add(def);
+            else
+                definitions.set(index, def);
             return this;
         }
         

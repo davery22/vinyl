@@ -11,6 +11,10 @@ public class Dataset {
         this.rows = rows;
     }
     
+    public Header header() {
+        return header;
+    }
+    
     public DatasetStream stream() {
         return new DatasetStream(header, Stream.of(rows).map(data -> new Row(header, data)));
     }

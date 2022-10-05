@@ -19,10 +19,22 @@ public class Row {
         this.data = data;
     }
     
+    public Header header() {
+        return header;
+    }
+    
     @SuppressWarnings("unchecked")
     public <T extends Comparable<T>> T get(Column<T> column) {
         int index = header.indexOf(column);
         return (T) data[index];
+    }
+    
+    @SuppressWarnings("unchecked")
+    public <T extends Comparable<T>> T get(Locator<T> locator) {
+        // Throws AIOOB
+        if (header.columns[locator.index] != locator.column)
+            throw new IllegalArgumentException("Invalid locator: " + locator);
+        return (T) data[locator.index];
     }
     
     @Override
@@ -44,12 +56,12 @@ public class Row {
     
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("Row{");
+        StringBuilder sb = new StringBuilder("Row[");
         String delimiter = "";
         for (int i = 0; i < data.length; i++) {
-            sb.append(delimiter).append(header.columns.get(i)).append('=').append(data[i]);
+            sb.append(delimiter).append(header.columns[i]).append('=').append(data[i]);
             delimiter = ", ";
         }
-        return sb.append('}').toString();
+        return sb.append(']').toString();
     }
 }

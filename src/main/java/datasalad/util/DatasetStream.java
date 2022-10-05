@@ -15,25 +15,40 @@ public class DatasetStream implements Stream<Row> {
     
     // --- new ---
     
+    public Header header() {
+        return header;
+    }
+    
+    @SuppressWarnings("unchecked")
     public static <T> Aux<T> aux(Stream<T> stream) {
+        if (stream instanceof DatasetStream)
+            return (Aux<T>) ((DatasetStream) stream).aux();
+        if (stream instanceof Aux)
+            return (Aux<T>) stream;
         // Chain a no-op, so that the stream will throw if re-used after this call.
         Stream<T> s = stream.peek(it -> {});
         return new Aux<>(s);
     }
     
     public static AuxInt aux(IntStream stream) {
+        if (stream instanceof AuxInt)
+            return (AuxInt) stream;
         // Chain a no-op, so that the stream will throw if re-used after this call.
         IntStream s = stream.peek(it -> {});
         return new AuxInt(s);
     }
     
     public static AuxLong aux(LongStream stream) {
+        if (stream instanceof AuxLong)
+            return (AuxLong) stream;
         // Chain a no-op, so that the stream will throw if re-used after this call.
         LongStream s = stream.peek(it -> {});
         return new AuxLong(s);
     }
     
     public static AuxDouble aux(DoubleStream stream) {
+        if (stream instanceof AuxDouble)
+            return (AuxDouble) stream;
         // Chain a no-op, so that the stream will throw if re-used after this call.
         DoubleStream s = stream.peek(it -> {});
         return new AuxDouble(s);

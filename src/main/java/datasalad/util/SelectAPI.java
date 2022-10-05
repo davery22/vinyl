@@ -15,35 +15,38 @@ public class SelectAPI {
     }
     
     public SelectAPI all() {
-        stream.header.columns.forEach(column -> {
+        for (Column<?> column : stream.header.columns) {
             int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-            RowMapper def = new RowMapper(index, row -> row.get(column));
+            Locator<?> locator = new Locator<>(column, index);
+            RowMapper def = new RowMapper(index, row -> row.get(locator));
             if (index == definitions.size())
                 definitions.add(def);
             else
                 definitions.set(index, def);
-        });
+        }
         return this;
     }
     
     public SelectAPI allExcept(Column<?>... columns) {
         Set<Column<?>> excluded = Set.of(columns);
-        stream.header.columns.forEach(column -> {
+        for (Column<?> column : stream.header.columns) {
             if (excluded.contains(column))
-                return;
+                continue;
             int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-            RowMapper def = new RowMapper(index, row -> row.get(column));
+            Locator<?> locator = new Locator<>(column, index);
+            RowMapper def = new RowMapper(index, row -> row.get(locator));
             if (index == definitions.size())
                 definitions.add(def);
             else
                 definitions.set(index, def);
-        });
+        }
         return this;
     }
     
     public SelectAPI col(Column<?> column) {
         int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-        RowMapper def = new RowMapper(index, row -> row.get(column));
+        Locator<?> locator = new Locator<>(column, index);
+        RowMapper def = new RowMapper(index, row -> row.get(locator));
         if (index == definitions.size())
             definitions.add(def);
         else

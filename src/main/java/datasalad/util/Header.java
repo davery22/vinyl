@@ -4,17 +4,24 @@ import java.util.*;
 
 class Header {
     final Map<Column<?>, Integer> indexByColumn;
-    final List<Column<?>> columns;
+    final Column<?>[] columns;
     
     Header(Map<Column<?>, Integer> indexByColumn) {
-        Column<?>[] cols = new Column[indexByColumn.size()];
-        indexByColumn.forEach((col, i) -> cols[i] = col);
-        this.columns = Arrays.asList(cols);
         this.indexByColumn = indexByColumn;
+        this.columns = new Column[indexByColumn.size()];
+        indexByColumn.forEach((col, i) -> columns[i] = col);
     }
     
     public int indexOf(Column<?> column) {
-        return indexByColumn.get(column);
+        return Objects.requireNonNull(indexByColumn.get(column), () -> "Unknown column: " + column);
+    }
+    
+    public <T extends Comparable<T>> Locator<T> locator(Column<T> column) {
+        return new Locator<>(column, indexOf(column));
+    }
+    
+    public List<Column<?>> columns() {
+        return Collections.unmodifiableList(Arrays.asList(columns));
     }
     
     @Override
@@ -23,16 +30,16 @@ class Header {
             return true;
         if (!(o instanceof Header))
             return false;
-        return columns.equals(((Header) o).columns);
+        return Arrays.equals(columns, ((Header) o).columns);
     }
     
     @Override
     public int hashCode() {
-        return columns.hashCode();
+        return Arrays.hashCode(columns);
     }
     
     @Override
     public String toString() {
-        return "Header" + columns;
+        return "Header" + Arrays.toString(columns);
     }
 }

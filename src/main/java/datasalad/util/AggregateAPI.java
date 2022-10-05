@@ -20,7 +20,8 @@ public class AggregateAPI {
     
     public AggregateAPI key(Column<?> column) {
         int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-        KeyRowMapper def = new KeyRowMapper(index, row -> row.get(column));
+        Locator<?> locator = new Locator<>(column, index);
+        KeyRowMapper def = new KeyRowMapper(index, row -> row.get(locator));
         if (index == definitions.size())
             definitions.add(def);
         else
@@ -63,7 +64,7 @@ public class AggregateAPI {
     
         // Idea:
         //  - combine key functions into one classifier that creates a List (hash/equals) of key values for a row
-        //  - combine agg functions into one collector that creates an array of agg values for a row
+        //  - combine agg functions into one collector that creates a List of agg values for a row
         //  - create a groupingBy collector from classifier and downstream collector
         //  - stream Map entries, create row from key values and agg values
         
@@ -105,31 +106,46 @@ public class AggregateAPI {
         // Prep the row-by-row transformation.
         int size = definitions.size();
         Header nextHeader = new Header(Map.copyOf(indexByColumn));
-        Function<Row, List<?>> classifier = classifierFor(finalMappers, keyIndexes.size());
         Collector<Row, ?, List<?>> downstream = collectorFor(finalCollectors, aggIndexes.size());
-        Collector<Row, ?, Map<List<?>, List<?>>> collector = Collectors.groupingBy(classifier, downstream);
+        Stream<Row> nextStream;
     
-        // Optimization of lazyCollect() + mapToDataset(), since this is trusted code.
+        // Optimization: Inline and simplify lazyCollect() + mapToDataset(), since this is trusted code.
+        // Optimization: Skip grouping if there are no keys.
+        if (keyIndexes.isEmpty()) {
+            nextStream = lazyCollectingStream(downstream)
+                .map(aggs -> {
+                    Comparable<?>[] arr = new Comparable[size];
+                    for (int i = 0; i < aggIndexes.size(); i++)
+                        arr[aggIndexes.get(i)] = (Comparable<?>) aggs.get(i);
+                    return new Row(nextHeader, arr);
+                });
+        } else {
+            Function<Row, List<?>> classifier = classifierFor(finalMappers, keyIndexes.size());
+            Collector<Row, ?, Map<List<?>, List<?>>> collector = Collectors.groupingBy(classifier, downstream);
+            nextStream = lazyCollectingStream(collector)
+                .flatMap(map -> map.entrySet().stream())
+                .map(e -> {
+                    Comparable<?>[] arr = new Comparable[size];
+                    List<?> keys = e.getKey();
+                    List<?> aggs = e.getValue();
+                    for (int i = 0; i < keyIndexes.size(); i++)
+                        arr[keyIndexes.get(i)] = (Comparable<?>) keys.get(i);
+                    for (int i = 0; i < aggIndexes.size(); i++)
+                        arr[aggIndexes.get(i)] = (Comparable<?>) aggs.get(i);
+                    return new Row(nextHeader, arr);
+                });
+        }
+        
+        return new DatasetStream(nextHeader, nextStream);
+    }
+    
+    private <T> Stream<T> lazyCollectingStream(Collector<Row, ?, T> collector) {
         Stream<Row> s = stream.stream.peek(it -> {});
-        Stream<Row> nextStream = StreamSupport.stream(
+        return StreamSupport.stream(
             () -> Collections.singleton(s.collect(collector)).spliterator(),
             Spliterator.SIZED | Spliterator.SUBSIZED | Spliterator.IMMUTABLE | Spliterator.DISTINCT | Spliterator.ORDERED,
             s.isParallel()
-        )
-            .onClose(s::close)
-            .flatMap(map -> map.entrySet().stream())
-            .map(e -> {
-                Comparable<?>[] arr = new Comparable[size];
-                List<?> keys = e.getKey();
-                List<?> aggs = e.getValue();
-                for (int i = 0; i < keyIndexes.size(); i++)
-                    arr[keyIndexes.get(i)] = (Comparable<?>) keys.get(i);
-                for (int i = 0; i < aggIndexes.size(); i++)
-                    arr[aggIndexes.get(i)] = (Comparable<?>) aggs.get(i);
-                return new Row(nextHeader, arr);
-            });
-        
-        return new DatasetStream(nextHeader, nextStream);
+        ).onClose(s::close);
     }
     
     private Function<Row, List<?>> classifierFor(List<Mapper> mappers, int keysSize) {
@@ -165,17 +181,17 @@ public class AggregateAPI {
             },
             (a, t) -> {
                 for (int i = 0; i < size; i++)
-                    accumulate(accumulators[i], a[i], t);
+                    accumulators[i].accept(cast(a[i]), cast(t));
             },
             (a, b) -> {
                 for (int i = 0; i < size; i++)
-                    a[i] = combine(combiners[i], a[i], b[i]);
+                    a[i] = combiners[i].apply(cast(a[i]), cast(b[i]));
                 return a;
             },
             a -> {
                 Object[] arr = new Object[aggsSize];
                 for (int i = 0; i < size; i++) {
-                    Object it = finish(finishers[i], a[i]);
+                    Object it = finishers[i].apply(cast(a[i]));
                     collectorBoxes.get(i).accept(it, arr);
                 }
                 return Arrays.asList(arr);
@@ -184,18 +200,8 @@ public class AggregateAPI {
     }
     
     @SuppressWarnings("unchecked")
-    private static <A, T> void accumulate(BiConsumer<A, T> accumulator, Object a, Object t) {
-        accumulator.accept((A) a, (T) t);
-    }
-    
-    @SuppressWarnings("unchecked")
-    private static <A> A combine(BinaryOperator<A> combiner, Object a, Object b) {
-        return combiner.apply((A) a, (A) b);
-    }
-    
-    @SuppressWarnings("unchecked")
-    private static <A, R> R finish(Function<A, R> finisher, Object a) {
-        return finisher.apply((A) a);
+    private static <T> T cast(Object o) {
+        return (T) o;
     }
     
     private abstract static class Mapper {

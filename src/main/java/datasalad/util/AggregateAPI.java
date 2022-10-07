@@ -19,8 +19,8 @@ public class AggregateAPI {
     // TODO: tempKeys
     
     public AggregateAPI key(Column<?> column) {
+        Locator<?> locator = new Locator<>(column, stream.header.indexOf(column));
         int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-        Locator<?> locator = new Locator<>(column, index);
         KeyRowMapper def = new KeyRowMapper(index, row -> row.get(locator));
         if (index == definitions.size())
             definitions.add(def);

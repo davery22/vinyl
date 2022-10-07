@@ -73,19 +73,19 @@ public class DatasetStream implements Stream<Row> {
     }
     
     public DatasetStream join(DatasetStream right, Consumer<JoinAPI> config) {
-        return this;
+        return new JoinAPI(JoinAPI.JoinType.INNER, this, right).accept(config);
     }
     
     public DatasetStream leftJoin(DatasetStream right, Consumer<JoinAPI> config) {
-        return this;
+        return new JoinAPI(JoinAPI.JoinType.LEFT, this, right).accept(config);
     }
     
     public DatasetStream rightJoin(DatasetStream right, Consumer<JoinAPI> config) {
-        return this;
+        return new JoinAPI(JoinAPI.JoinType.RIGHT, this, right).accept(config);
     }
     
     public DatasetStream fullJoin(DatasetStream right, Consumer<JoinAPI> config) {
-        return this;
+        return new JoinAPI(JoinAPI.JoinType.FULL, this, right).accept(config);
     }
     
     // --- old ---

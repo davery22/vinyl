@@ -15,9 +15,11 @@ public class SelectAPI {
     }
     
     public SelectAPI all() {
-        for (Column<?> column : stream.header.columns) {
+        Column<?>[] columns = stream.header.columns;
+        for (int i = 0; i < columns.length; i++) {
+            Column<?> column = columns[i];
+            Locator<?> locator = new Locator<>(column, i);
             int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-            Locator<?> locator = new Locator<>(column, index);
             RowMapper def = new RowMapper(index, row -> row.get(locator));
             if (index == definitions.size())
                 definitions.add(def);
@@ -27,13 +29,15 @@ public class SelectAPI {
         return this;
     }
     
-    public SelectAPI allExcept(Column<?>... columns) {
-        Set<Column<?>> excluded = Set.of(columns);
-        for (Column<?> column : stream.header.columns) {
-            if (excluded.contains(column))
+    public SelectAPI allExcept(Column<?>... excluded) {
+        Set<Column<?>> excludedSet = Set.of(excluded);
+        Column<?>[] columns = stream.header.columns;
+        for (int i = 0; i < columns.length; i++) {
+            Column<?> column = columns[i];
+            if (excludedSet.contains(column))
                 continue;
+            Locator<?> locator = new Locator<>(column, i);
             int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-            Locator<?> locator = new Locator<>(column, index);
             RowMapper def = new RowMapper(index, row -> row.get(locator));
             if (index == definitions.size())
                 definitions.add(def);
@@ -44,8 +48,8 @@ public class SelectAPI {
     }
     
     public SelectAPI col(Column<?> column) {
+        Locator<?> locator = new Locator<>(column, stream.header.indexOf(column));
         int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-        Locator<?> locator = new Locator<>(column, index);
         RowMapper def = new RowMapper(index, row -> row.get(locator));
         if (index == definitions.size())
             definitions.add(def);

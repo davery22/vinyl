@@ -30,7 +30,7 @@ public class DatasetStreamTest {
             )
             .aggregate($->$
                 .key(COL_A)
-                .key(COL_B, r -> r.get(COL_B) + r.get(COL_C))
+                .tempKey(COL_B, r -> r.get(COL_B) + r.get(COL_C))
                 .agg(COL_C, summingInt(r -> r.get(COL_A)))
                 .aggs(summarizingInt(r -> r.get(COL_B)), $$->$$
                     .agg(COL_D, IntSummaryStatistics::getMax)

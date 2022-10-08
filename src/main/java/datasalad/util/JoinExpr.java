@@ -2,7 +2,7 @@ package datasalad.util;
 
 import java.util.function.Supplier;
 
-public class JoinExpr<T extends Comparable<T>> {
+public class JoinExpr<T extends Comparable<? super T>> {
     JoinExpr() {} // Prevent default public constructor
     
     public JoinPred eq(JoinExpr<?> right) {

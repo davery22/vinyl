@@ -14,7 +14,7 @@ public class MapAPI<T> {
         this.stream = stream;
     }
     
-    public <U extends Comparable<U>> MapAPI<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
+    public <U extends Comparable<? super U>> MapAPI<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
         int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
         ColumnMapper<T> def = new ColumnMapper<>(index, mapper);
         if (index == definitions.size())

@@ -24,13 +24,13 @@ public class Row {
     }
     
     @SuppressWarnings("unchecked")
-    public <T extends Comparable<T>> T get(Column<T> column) {
+    public <T extends Comparable<? super T>> T get(Column<T> column) {
         int index = header.indexOf(column);
         return (T) data[index];
     }
     
     @SuppressWarnings("unchecked")
-    public <T extends Comparable<T>> T get(Locator<T> locator) {
+    public <T extends Comparable<? super T>> T get(Locator<T> locator) {
         // Throws AIOOB
         if (header.columns[locator.index] != locator.column)
             throw new IllegalArgumentException("Invalid locator: " + locator);

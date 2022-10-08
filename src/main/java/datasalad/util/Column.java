@@ -1,6 +1,6 @@
 package datasalad.util;
 
-public final class Column<T extends Comparable<T>> {
+public final class Column<T extends Comparable<? super T>> {
     private final String name;
     
     public Column(String name) {

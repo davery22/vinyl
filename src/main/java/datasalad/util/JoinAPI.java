@@ -41,23 +41,23 @@ public class JoinAPI {
     public class On {
         On() {} // Prevent default public constructor
     
-        public <T extends Comparable<T>> JoinExpr<T> left(Column<T> column) {
+        public <T extends Comparable<? super T>> JoinExpr<T> left(Column<T> column) {
             return null;
         }
         
-        public <T extends Comparable<T>> JoinExpr<T> right(Column<T> column) {
+        public <T extends Comparable<? super T>> JoinExpr<T> right(Column<T> column) {
             return null;
         }
         
-        public <T extends Comparable<T>> JoinExpr<T> left(Function<? super Row, T> mapper) {
+        public <T extends Comparable<? super T>> JoinExpr<T> left(Function<? super Row, T> mapper) {
             return null;
         }
         
-        public <T extends Comparable<T>> JoinExpr<T> right(Function<? super Row, T> mapper) {
+        public <T extends Comparable<? super T>> JoinExpr<T> right(Function<? super Row, T> mapper) {
             return null;
         }
         
-        public <T extends Comparable<T>> JoinExpr<T> val(Supplier<T> val) {
+        public <T extends Comparable<? super T>> JoinExpr<T> val(Supplier<T> val) {
             return null;
         }
         
@@ -92,11 +92,12 @@ public class JoinAPI {
         
         Select() {} // Prevent default public constructor
         
+        @SuppressWarnings({"unchecked", "rawtypes"})
         public Select lall() {
             Column<?>[] columns = left.header.columns;
             for (int i = 0; i < columns.length; i++) {
                 Column<?> column = columns[i];
-                Locator<?> locator = new Locator<>(column, i);
+                Locator locator = new Locator(column, i);
                 int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
                 RowMapper def = new RowMapper(index, (lt, rt) -> lt.get(locator));
                 if (index == definitions.size())
@@ -106,12 +107,13 @@ public class JoinAPI {
             }
             return this;
         }
-        
+    
+        @SuppressWarnings({"unchecked", "rawtypes"})
         public Select rall() {
             Column<?>[] columns = right.header.columns;
             for (int i = 0; i < columns.length; i++) {
                 Column<?> column = columns[i];
-                Locator<?> locator = new Locator<>(column, i);
+                Locator locator = new Locator(column, i);
                 int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
                 RowMapper def = new RowMapper(index, (lt, rt) -> rt.get(locator));
                 if (index == definitions.size())
@@ -121,7 +123,8 @@ public class JoinAPI {
             }
             return this;
         }
-        
+    
+        @SuppressWarnings({"unchecked", "rawtypes"})
         public Select lallExcept(Column<?>... excluded) {
             Set<Column<?>> excludedSet = Set.of(excluded);
             Column<?>[] columns = left.header.columns;
@@ -129,7 +132,7 @@ public class JoinAPI {
                 Column<?> column = columns[i];
                 if (excludedSet.contains(column))
                     continue;
-                Locator<?> locator = new Locator<>(column, i);
+                Locator locator = new Locator(column, i);
                 int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
                 RowMapper def = new RowMapper(index, (lt, rt) -> lt.get(locator));
                 if (index == definitions.size())
@@ -139,7 +142,8 @@ public class JoinAPI {
             }
             return this;
         }
-        
+    
+        @SuppressWarnings({"unchecked", "rawtypes"})
         public Select rallExcept(Column<?>... excluded) {
             Set<Column<?>> excludedSet = Set.of(excluded);
             Column<?>[] columns = right.header.columns;
@@ -147,7 +151,7 @@ public class JoinAPI {
                 Column<?> column = columns[i];
                 if (excludedSet.contains(column))
                     continue;
-                Locator<?> locator = new Locator<>(column, i);
+                Locator locator = new Locator(column, i);
                 int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
                 RowMapper def = new RowMapper(index, (lt, rt) -> rt.get(locator));
                 if (index == definitions.size())
@@ -157,9 +161,10 @@ public class JoinAPI {
             }
             return this;
         }
-        
+    
+        @SuppressWarnings({"unchecked", "rawtypes"})
         public Select lcol(Column<?> column) {
-            Locator<?> locator = new Locator<>(column, left.header.indexOf(column));
+            Locator locator = new Locator(column, left.header.indexOf(column));
             int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
             RowMapper def = new RowMapper(index, (lt, rt) -> lt.get(locator));
             if (index == definitions.size())
@@ -168,9 +173,10 @@ public class JoinAPI {
                 definitions.set(index, def);
             return this;
         }
-        
+    
+        @SuppressWarnings({"unchecked", "rawtypes"})
         public Select rcol(Column<?> column) {
-            Locator<?> locator = new Locator<>(column, right.header.indexOf(column));
+            Locator locator = new Locator(column, right.header.indexOf(column));
             int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
             RowMapper def = new RowMapper(index, (lt, rt) -> rt.get(locator));
             if (index == definitions.size())
@@ -180,7 +186,7 @@ public class JoinAPI {
             return this;
         }
         
-        public <T extends Comparable<T>> Select col(Column<T> column, BiFunction<? super Row, ? super Row, ? extends T> mapper) {
+        public <T extends Comparable<? super T>> Select col(Column<T> column, BiFunction<? super Row, ? super Row, ? extends T> mapper) {
             int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
             RowMapper def = new RowMapper(index, mapper);
             if (index == definitions.size())
@@ -222,7 +228,7 @@ public class JoinAPI {
                 this.mapper = mapper;
             }
     
-            public <U extends Comparable<U>> Cols<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
+            public <U extends Comparable<? super U>> Cols<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
                 int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
                 ObjMapper def = new ObjMapper(index, mapper);
                 if (index == definitions.size())

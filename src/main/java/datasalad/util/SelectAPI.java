@@ -14,11 +14,12 @@ public class SelectAPI {
         this.stream = stream;
     }
     
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public SelectAPI all() {
         Column<?>[] columns = stream.header.columns;
         for (int i = 0; i < columns.length; i++) {
             Column<?> column = columns[i];
-            Locator<?> locator = new Locator<>(column, i);
+            Locator locator = new Locator(column, i);
             int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
             RowMapper def = new RowMapper(index, row -> row.get(locator));
             if (index == definitions.size())
@@ -29,6 +30,7 @@ public class SelectAPI {
         return this;
     }
     
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public SelectAPI allExcept(Column<?>... excluded) {
         Set<Column<?>> excludedSet = Set.of(excluded);
         Column<?>[] columns = stream.header.columns;
@@ -36,7 +38,7 @@ public class SelectAPI {
             Column<?> column = columns[i];
             if (excludedSet.contains(column))
                 continue;
-            Locator<?> locator = new Locator<>(column, i);
+            Locator locator = new Locator(column, i);
             int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
             RowMapper def = new RowMapper(index, row -> row.get(locator));
             if (index == definitions.size())
@@ -47,8 +49,9 @@ public class SelectAPI {
         return this;
     }
     
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public SelectAPI col(Column<?> column) {
-        Locator<?> locator = new Locator<>(column, stream.header.indexOf(column));
+        Locator locator = new Locator(column, stream.header.indexOf(column));
         int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
         RowMapper def = new RowMapper(index, row -> row.get(locator));
         if (index == definitions.size())
@@ -58,7 +61,7 @@ public class SelectAPI {
         return this;
     }
     
-    public <T extends Comparable<T>> SelectAPI col(Column<T> column, Function<? super Row, ? extends T> mapper) {
+    public <T extends Comparable<? super T>> SelectAPI col(Column<T> column, Function<? super Row, ? extends T> mapper) {
         int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
         RowMapper def = new RowMapper(index, mapper);
         if (index == definitions.size())
@@ -133,7 +136,7 @@ public class SelectAPI {
             this.mapper = mapper;
         }
         
-        public <U extends Comparable<U>> Cols<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
+        public <U extends Comparable<? super U>> Cols<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
             int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
             ObjMapper def = new ObjMapper(index, mapper);
             if (index == definitions.size())

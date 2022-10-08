@@ -16,7 +16,7 @@ class Header {
         return Objects.requireNonNull(indexByColumn.get(column), () -> "Unknown column: " + column);
     }
     
-    public <T extends Comparable<T>> Locator<T> locator(Column<T> column) {
+    public <T extends Comparable<? super T>> Locator<T> locator(Column<T> column) {
         return new Locator<>(column, indexOf(column));
     }
     

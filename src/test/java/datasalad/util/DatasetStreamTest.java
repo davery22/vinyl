@@ -40,7 +40,7 @@ public class DatasetStreamTest {
             )
             .toDataset();
         
-        data.stream().forEach(System.out::println);
+        System.out.println(data.toString());
         
 //        Dataset selfJoined = data.stream()
 //            .join(data.stream(), $$->$$

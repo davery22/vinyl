@@ -1,7 +1,9 @@
 package datasalad.util;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.List;
 
 public class Row {
     /**
@@ -21,6 +23,10 @@ public class Row {
     
     public Header header() {
         return header;
+    }
+    
+    public List<Comparable<?>> data() {
+        return Collections.unmodifiableList(Arrays.asList(data));
     }
     
     @SuppressWarnings("unchecked")

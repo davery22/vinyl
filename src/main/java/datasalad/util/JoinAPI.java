@@ -12,6 +12,12 @@ public class JoinAPI {
     
     enum JoinType { INNER, LEFT, RIGHT, FULL }
     
+    // 'Side' values, used by JoinExpr and JoinPred.
+    static int NONE = 0;
+    static int RIGHT = 1;
+    static int LEFT = 2;
+    static int BOTH = 3; // LEFT | RIGHT
+    
     JoinAPI(JoinType type, DatasetStream left, DatasetStream right) {
         this.type = type;
         this.left = left;
@@ -38,10 +44,19 @@ public class JoinAPI {
         
         // left/right/const | ineq/eq
         //
-        // right-ineq-left         --> range-index right
         // right-eq-left           --> point-index right
+        // right-ineq-left         --> range-index right
         // right-in/eq-const/right --> pre-filter right
+        // rmatch                  --> pre-filter right
         // left-in/eq-const/left   --> filter left
+        // lmatch                  --> filter left
+        // match                   --> filter both
+        //
+        // all --> nest consecutive indexes & pre-filters, until match() is reached
+        // any --> separate consecutive indexes & pre-filters
+        //
+        // 1. Describe how to build structure on the right-hand side.
+        // 2. Describe how to traverse structure and run checks.
         
         // TODO
         throw new UnsupportedOperationException();
@@ -51,19 +66,19 @@ public class JoinAPI {
         On() {} // Prevent default public constructor
     
         public <T extends Comparable<? super T>> JoinExpr<T> left(Column<T> column) {
-            return new JoinExpr.Col<>(true, column);
+            return new JoinExpr.LCol<>(left.header.locator(column));
         }
         
         public <T extends Comparable<? super T>> JoinExpr<T> right(Column<T> column) {
-            return new JoinExpr.Col<>(false, column);
+            return new JoinExpr.RCol<>(right.header.locator(column));
         }
         
         public <T extends Comparable<? super T>> JoinExpr<T> left(Function<? super Row, T> mapper) {
-            return new JoinExpr.SideExpr<>(true, mapper);
+            return new JoinExpr.LExpr<>(mapper);
         }
         
         public <T extends Comparable<? super T>> JoinExpr<T> right(Function<? super Row, T> mapper) {
-            return new JoinExpr.SideExpr<>(false, mapper);
+            return new JoinExpr.RExpr<>(mapper);
         }
         
         public <T extends Comparable<? super T>> JoinExpr<T> eval(Supplier<T> supplier) {
@@ -75,16 +90,15 @@ public class JoinAPI {
         }
         
         public JoinPred not(JoinPred predicate) {
-            // Lazy, to avoid wasted effort if `not`s cancel-out.
             return new JoinPred.Not(predicate);
         }
-        
-        public JoinPred all(JoinPred... predicates) {
-            return new JoinPred.AnyAll(false, List.of(predicates));
-        }
-        
+    
         public JoinPred any(JoinPred... predicates) {
             return new JoinPred.AnyAll(true, List.of(predicates));
+        }
+    
+        public JoinPred all(JoinPred... predicates) {
+            return new JoinPred.AnyAll(false, List.of(predicates));
         }
         
         public JoinPred lmatch(Predicate<? super Row> predicate) {

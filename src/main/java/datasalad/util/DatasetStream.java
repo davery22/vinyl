@@ -19,6 +19,12 @@ public class DatasetStream implements Stream<Row> {
         return header;
     }
     
+    public static DatasetStream concat(DatasetStream a, DatasetStream b) {
+        if (!a.header.equals(b.header))
+            throw new IllegalArgumentException("Header mismatch");
+        return new DatasetStream(a.header, Stream.concat(a.stream, b.stream));
+    }
+    
     @SuppressWarnings("unchecked")
     public static <T> Aux<T> aux(Stream<T> stream) {
         if (stream instanceof DatasetStream)
@@ -322,7 +328,7 @@ public class DatasetStream implements Stream<Row> {
         // --- new ---
         
         public DatasetStream mapToDataset(Consumer<MapAPI<T>> config) {
-            return new MapAPI<>(this).accept(config);
+            return new MapAPI<T>().accept(this, config);
         }
         
         public <R, A> Aux<R> lazyCollect(Collector<? super T, A, R> collector) {

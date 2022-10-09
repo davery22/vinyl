@@ -1,5 +1,7 @@
 package datasalad.util;
 
+import java.util.function.Consumer;
+import java.util.stream.Collector;
 import java.util.stream.Stream;
 
 public class Dataset {
@@ -19,22 +21,27 @@ public class Dataset {
         return new DatasetStream(header, Stream.of(rows).map(data -> new Row(header, data)));
     }
     
+    public static <T> Collector<T, ?, Dataset> collector(Consumer<MapAPI<T>> config) {
+        return new MapAPI<T>().collector(config);
+    }
+    
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("Dataset[\n");
-        String delimiter = "\t[";
+        StringBuilder sb = new StringBuilder("Dataset[\n\t[");
+        String delimiter = "";
         for (Column<?> column : header.columns) {
             sb.append(delimiter).append(column);
             delimiter = ", ";
         }
         sb.append(']');
         for (Comparable<?>[] row : rows) {
-            delimiter = ",\n\t[";
+            sb.append(",\n\t[");
+            delimiter = "";
             for (Comparable<?> val : row) {
                 sb.append(delimiter).append(val);
                 delimiter = ", ";
             }
-            sb.append("]");
+            sb.append(']');
         }
         return sb.append("\n]").toString();
     }

@@ -7,7 +7,11 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class JoinExpr<T extends Comparable<? super T>> {
-    JoinExpr() {} // Prevent default public constructor
+    final int side;
+    
+    JoinExpr(int side) {
+        this.side = side;
+    }
     
     public JoinPred eq(JoinExpr<?> right) {
         return new JoinPred.Binary(JoinPred.Binary.Op.EQ, this, right);
@@ -47,23 +51,63 @@ public class JoinExpr<T extends Comparable<? super T>> {
 //        throw new UnsupportedOperationException();
 //    }
     
-    static class Col<T extends Comparable<? super T>> extends JoinExpr<T> {
-        final boolean isLeft;
-        final Column<T> column;
+    T get(Row left, Row right) {
+        throw new UnsupportedOperationException();
+    }
+    
+    static class LCol<T extends Comparable<? super T>> extends JoinExpr<T> {
+        final Locator<T> locator;
         
-        Col(boolean isLeft, Column<T> column) {
-            this.isLeft = isLeft;
-            this.column = column;
+        LCol(Locator<T> locator) {
+            super(JoinAPI.LEFT);
+            this.locator = locator;
+        }
+        
+        @Override
+        T get(Row left, Row right) {
+            return left.get(locator);
         }
     }
     
-    static class SideExpr<T extends Comparable<? super T>> extends JoinExpr<T> {
-        final boolean isLeft;
+    static class RCol<T extends Comparable<? super T>> extends JoinExpr<T> {
+        final Locator<T> locator;
+        
+        RCol(Locator<T> locator) {
+            super(JoinAPI.RIGHT);
+            this.locator = locator;
+        }
+        
+        @Override
+        T get(Row left, Row right) {
+            return right.get(locator);
+        }
+    }
+    
+    static class LExpr<T extends Comparable<? super T>> extends JoinExpr<T> {
         final Function<? super Row, T> mapper;
         
-        SideExpr(boolean isLeft, Function<? super Row, T> mapper) {
-            this.isLeft = isLeft;
+        LExpr(Function<? super Row, T> mapper) {
+            super(JoinAPI.LEFT);
             this.mapper = mapper;
+        }
+        
+        @Override
+        T get(Row left, Row right) {
+            return mapper.apply(left);
+        }
+    }
+    
+    static class RExpr<T extends Comparable<? super T>> extends JoinExpr<T> {
+        final Function<? super Row, T> mapper;
+        
+        RExpr(Function<? super Row, T> mapper) {
+            super(JoinAPI.RIGHT);
+            this.mapper = mapper;
+        }
+        
+        @Override
+        T get(Row left, Row right) {
+            return mapper.apply(right);
         }
     }
     
@@ -71,7 +115,10 @@ public class JoinExpr<T extends Comparable<? super T>> {
         final Supplier<T> supplier;
         
         Expr(Supplier<T> supplier) {
+            super(JoinAPI.NONE);
             this.supplier = supplier;
         }
+        
+        // `Expr` should be evaluated once, not for each row.
     }
 }

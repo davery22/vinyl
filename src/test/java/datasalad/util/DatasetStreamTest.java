@@ -42,9 +42,23 @@ public class DatasetStreamTest {
         
         System.out.println(data.toString());
         
+        System.out.println(data.stream()
+            .collect(Dataset.collector($ -> data.header().selectAllExcept($, COL_D)))
+            .toString()
+        );
+        
 //        Dataset selfJoined = data.stream()
 //            .join(data.stream(), $$->$$
 //                .on($-> $.left(COL_A).eq($.right(COL_B)))
+//                .on($->
+//                    $.not(
+//                        $.any(
+//                            $.val(3).eq($.val("")),
+//                            $.left(COL_A).gte($.right(COL_D)),
+//
+//                        )
+//                    )
+//                )
 //                .andSelect($->$
 //                    .lcol(COL_A)
 //                    .rallExcept(COL_A)

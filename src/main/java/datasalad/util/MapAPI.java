@@ -3,16 +3,14 @@ package datasalad.util;
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.stream.Collector;
 import java.util.stream.Stream;
 
 public class MapAPI<T> {
-    private final DatasetStream.Aux<T> stream;
     private final Map<Column<?>, Integer> indexByColumn = new HashMap<>();
     private final List<ColumnMapper<T>> definitions = new ArrayList<>();
     
-    MapAPI(DatasetStream.Aux<T> stream) {
-        this.stream = stream;
-    }
+    MapAPI() {} // Prevent default public constructor
     
     public <U extends Comparable<? super U>> MapAPI<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
         int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
@@ -24,15 +22,16 @@ public class MapAPI<T> {
         return this;
     }
     
-    DatasetStream accept(Consumer<MapAPI<T>> config) {
+    DatasetStream accept(DatasetStream.Aux<T> stream, Consumer<MapAPI<T>> config) {
         config.accept(this);
     
         // Avoid picking up side-effects from bad-actor callbacks.
         Map<Column<?>, Integer> finalIndexByColumn = Map.copyOf(indexByColumn);
-        List<ColumnMapper<T>> finalMappers = List.copyOf(definitions);
+        @SuppressWarnings("unchecked")
+        ColumnMapper<T>[] finalMappers = definitions.toArray(ColumnMapper[]::new);
         
         // Prep the row-by-row transformation.
-        int size = definitions.size();
+        int size = finalMappers.length;
         Header nextHeader = new Header(finalIndexByColumn);
         Stream<Row> nextStream = stream.stream.map(it -> {
             Comparable<?>[] arr = new Comparable[size];
@@ -42,6 +41,31 @@ public class MapAPI<T> {
         });
     
         return new DatasetStream(nextHeader, nextStream);
+    }
+    
+    Collector<T, ?, Dataset> collector(Consumer<MapAPI<T>> config) {
+        config.accept(this);
+    
+        // Avoid picking up side-effects from bad-actor callbacks.
+        Map<Column<?>, Integer> finalIndexByColumn = Map.copyOf(indexByColumn);
+        @SuppressWarnings("unchecked")
+        ColumnMapper<T>[] finalMappers = definitions.toArray(ColumnMapper[]::new);
+        
+        int size = definitions.size();
+        return Collector.of(
+            () -> new ArrayList<Comparable<?>[]>(),
+            (a, t) -> {
+                Comparable<?>[] arr = new Comparable[size];
+                for (ColumnMapper<T> mapper : finalMappers)
+                    mapper.accept(t, arr);
+                a.add(arr);
+            },
+            (a, b) -> {
+                a.addAll(b);
+                return a;
+            },
+            a -> new Dataset(new Header(finalIndexByColumn), a.toArray(Comparable<?>[][]::new))
+        );
     }
     
     private static class ColumnMapper<T> {

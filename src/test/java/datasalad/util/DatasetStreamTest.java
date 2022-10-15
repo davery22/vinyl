@@ -53,8 +53,8 @@ public class DatasetStreamTest {
 //                .on($->
 //                    $.not(
 //                        $.any(
-//                            $.val(3).eq($.val("")),
-//                            $.left(COL_A).gte($.right(COL_D)),
+//                            $.eq($.val(3), $.val("")),
+//                            $.gte($.left(COL_A), $.right(COL_D)),
 //
 //                        )
 //                    )

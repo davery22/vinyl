@@ -6,9 +6,9 @@ import java.util.stream.Stream;
 
 public class Dataset {
     private final Header header;
-    private final Comparable<?>[][] rows;
+    private final Object[][] rows;
     
-    Dataset(Header header, Comparable<?>[][] rows) {
+    Dataset(Header header, Object[][] rows) {
         this.header = header;
         this.rows = rows;
     }
@@ -21,6 +21,7 @@ public class Dataset {
         return new DatasetStream(header, Stream.of(rows).map(data -> new Row(header, data)));
     }
     
+    // TODO: Use separate CollectorAPI to permit future persistent indexes?
     public static <T> Collector<T, ?, Dataset> collector(Consumer<MapAPI<T>> config) {
         return new MapAPI<T>().collector(config);
     }
@@ -34,10 +35,10 @@ public class Dataset {
             delimiter = ", ";
         }
         sb.append(']');
-        for (Comparable<?>[] row : rows) {
+        for (Object[] row : rows) {
             sb.append(",\n\t[");
             delimiter = "";
-            for (Comparable<?> val : row) {
+            for (Object val : row) {
                 sb.append(delimiter).append(val);
                 delimiter = ", ";
             }

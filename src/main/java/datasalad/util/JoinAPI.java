@@ -2,6 +2,8 @@ package datasalad.util;
 
 import java.util.*;
 import java.util.function.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class JoinAPI {
     private final JoinType type;
@@ -57,6 +59,12 @@ public class JoinAPI {
         //
         // 1. Describe how to build structure on the right-hand side.
         // 2. Describe how to traverse structure and run checks.
+        //
+        // TODO:
+        //  1. Repeated point-indexes: L(B) = R(C) AND ... AND L(C) = R(C)
+        //     -->   L(B) = R(C) = L(C)
+        //  2. L(B) < R(C) AND ... AND L(C) > R(C)
+        //     -->   L(B) < R(C) < L(C)
         
         // TODO
         throw new UnsupportedOperationException();
@@ -65,29 +73,68 @@ public class JoinAPI {
     public class On {
         On() {} // Prevent default public constructor
     
-        public <T extends Comparable<? super T>> JoinExpr<T> left(Column<T> column) {
+        public <T> JoinExpr<T> left(Column<T> column) {
             return new JoinExpr.LCol<>(left.header.locator(column));
         }
         
-        public <T extends Comparable<? super T>> JoinExpr<T> right(Column<T> column) {
+        public <T> JoinExpr<T> right(Column<T> column) {
             return new JoinExpr.RCol<>(right.header.locator(column));
         }
         
-        public <T extends Comparable<? super T>> JoinExpr<T> left(Function<? super Row, T> mapper) {
+        public <T> JoinExpr<T> left(Function<? super Row, T> mapper) {
             return new JoinExpr.LExpr<>(mapper);
         }
         
-        public <T extends Comparable<? super T>> JoinExpr<T> right(Function<? super Row, T> mapper) {
+        public <T> JoinExpr<T> right(Function<? super Row, T> mapper) {
             return new JoinExpr.RExpr<>(mapper);
         }
         
-        public <T extends Comparable<? super T>> JoinExpr<T> eval(Supplier<T> supplier) {
+        public <T> JoinExpr<T> eval(Supplier<T> supplier) {
             return new JoinExpr.Expr<>(supplier);
         }
         
-        public <T extends Comparable<? super T>> JoinExpr<T> val(T val) {
+        public <T> JoinExpr<T> val(T val) {
             return new JoinExpr.Expr<>(() -> val);
         }
+    
+    
+        public JoinPred eq(JoinExpr<?> left, JoinExpr<?> right) {
+            return new JoinPred.Binary(JoinPred.Binary.Op.EQ, left, right);
+        }
+    
+        public JoinPred neq(JoinExpr<?> left, JoinExpr<?> right) {
+            return new JoinPred.Binary(JoinPred.Binary.Op.NEQ, left, right);
+        }
+    
+        public <T extends Comparable<? super T>> JoinPred gt(JoinExpr<T> left, JoinExpr<T> right) {
+            return new JoinPred.Binary(JoinPred.Binary.Op.GT, left, right);
+        }
+    
+        public <T extends Comparable<? super T>> JoinPred gte(JoinExpr<T> left, JoinExpr<T> right) {
+            return new JoinPred.Binary(JoinPred.Binary.Op.GTE, left, right);
+        }
+    
+        public <T extends Comparable<? super T>> JoinPred lt(JoinExpr<T> left, JoinExpr<T> right) {
+            return new JoinPred.Binary(JoinPred.Binary.Op.LT, left, right);
+        }
+    
+        public <T extends Comparable<? super T>> JoinPred lte(JoinExpr<T> left, JoinExpr<T> right) {
+            return new JoinPred.Binary(JoinPred.Binary.Op.LTE, left, right);
+        }
+    
+        public JoinPred in(JoinExpr<?> left, JoinExpr<?>... exprs) {
+            // TODO: Use Set?
+            return new JoinPred.AnyAll(true, Stream.of(exprs).map(right -> eq(left, right)).collect(Collectors.toList()));
+        }
+    
+        public <T extends Comparable<? super T>> JoinPred between(JoinExpr<T> left, JoinExpr<T> start, JoinExpr<T> end) {
+            return new JoinPred.AnyAll(false, List.of(gte(left, start), lte(left, end)));
+        }
+    
+        // TODO
+//        public JoinPred like(JoinExpr<String> left, Supplier<String> pattern) {
+//            throw new UnsupportedOperationException();
+//        }
         
         public JoinPred not(JoinPred predicate) {
             return new JoinPred.Not(predicate);
@@ -214,7 +261,7 @@ public class JoinAPI {
             return this;
         }
         
-        public <T extends Comparable<? super T>> Select col(Column<T> column, BiFunction<? super Row, ? super Row, ? extends T> mapper) {
+        public <T> Select col(Column<T> column, BiFunction<? super Row, ? super Row, ? extends T> mapper) {
             int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
             RowMapper def = new RowMapper(index, mapper);
             if (index == definitions.size())
@@ -230,20 +277,20 @@ public class JoinAPI {
         }
         
         private abstract static class Mapper {
-            abstract void accept(Row left, Row right, Comparable<?>[] arr);
+            abstract void accept(Row left, Row right, Object[] arr);
         }
     
         private static class RowMapper extends Mapper {
             final int index;
-            final BiFunction<? super Row, ? super Row, ? extends Comparable<?>> mapper;
+            final BiFunction<? super Row, ? super Row, ?> mapper;
         
-            RowMapper(int index, BiFunction<? super Row, ? super Row, ? extends Comparable<?>> mapper) {
+            RowMapper(int index, BiFunction<? super Row, ? super Row, ?> mapper) {
                 this.index = index;
                 this.mapper = mapper;
             }
         
             @Override
-            void accept(Row left, Row right, Comparable<?>[] arr) {
+            void accept(Row left, Row right, Object[] arr) {
                 arr[index] = mapper.apply(left, right);
             }
         }
@@ -256,7 +303,7 @@ public class JoinAPI {
                 this.mapper = mapper;
             }
     
-            public <U extends Comparable<? super U>> Cols<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
+            public <U> Cols<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
                 int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
                 ObjMapper def = new ObjMapper(index, mapper);
                 if (index == definitions.size())
@@ -267,21 +314,21 @@ public class JoinAPI {
             }
     
             @Override
-            void accept(Row left, Row right, Comparable<?>[] arr) {
+            void accept(Row left, Row right, Object[] arr) {
                 T obj = mapper.apply(left, right);
                 children.forEach(child -> child.accept(obj, arr));
             }
     
             private class ObjMapper {
                 final int index;
-                final Function<? super T, ? extends Comparable<?>> mapper;
+                final Function<? super T, ?> mapper;
         
-                ObjMapper(int index, Function<? super T, ? extends Comparable<?>> mapper) {
+                ObjMapper(int index, Function<? super T, ?> mapper) {
                     this.index = index;
                     this.mapper = mapper;
                 }
         
-                void accept(T in, Comparable<?>[] arr) {
+                void accept(T in, Object[] arr) {
                     arr[index] = mapper.apply(in);
                 }
         

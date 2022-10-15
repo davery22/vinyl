@@ -2,21 +2,13 @@ package datasalad.util;
 
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 
 public class Row {
-    /**
-     * Only safe when both rows are known to use the same types / have the same header.
-     */
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    static final Comparator<Row> HEADLESS_COMPARATOR = (r1, r2) ->
-        Arrays.compare((Comparable[]) r1.data, (Comparable[]) r2.data);
-    
     private final Header header;
-    final Comparable<?>[] data;
+    final Object[] data;
     
-    Row(Header header, Comparable<?>[] data) {
+    Row(Header header, Object[] data) {
         this.header = header;
         this.data = data;
     }
@@ -25,18 +17,18 @@ public class Row {
         return header;
     }
     
-    public List<Comparable<?>> data() {
+    public List<Object> data() {
         return Collections.unmodifiableList(Arrays.asList(data));
     }
     
     @SuppressWarnings("unchecked")
-    public <T extends Comparable<? super T>> T get(Column<T> column) {
+    public <T> T get(Column<T> column) {
         int index = header.indexOf(column);
         return (T) data[index];
     }
     
     @SuppressWarnings("unchecked")
-    public <T extends Comparable<? super T>> T get(Locator<T> locator) {
+    public <T> T get(Locator<T> locator) {
         // Throws AIOOB
         if (header.columns[locator.index] != locator.column)
             throw new IllegalArgumentException("Invalid locator: " + locator);

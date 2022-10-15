@@ -1,6 +1,6 @@
 package datasalad.util;
 
-public final class Locator<T extends Comparable<? super T>> {
+public final class Locator<T> {
     final Column<T> column;
     final int index;
     

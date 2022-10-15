@@ -61,7 +61,7 @@ public class SelectAPI {
         return this;
     }
     
-    public <T extends Comparable<? super T>> SelectAPI col(Column<T> column, Function<? super Row, ? extends T> mapper) {
+    public <T> SelectAPI col(Column<T> column, Function<? super Row, ? extends T> mapper) {
         int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
         RowMapper def = new RowMapper(index, mapper);
         if (index == definitions.size())
@@ -100,7 +100,7 @@ public class SelectAPI {
         int size = definitions.size();
         Header nextHeader = new Header(finalIndexByColumn);
         Stream<Row> nextStream = stream.stream.map(it -> {
-            Comparable<?>[] arr = new Comparable[size];
+            Object[] arr = new Object[size];
             for (Mapper mapper : finalMappers)
                 mapper.accept(it, arr);
             return new Row(nextHeader, arr);
@@ -110,20 +110,20 @@ public class SelectAPI {
     }
     
     private abstract static class Mapper {
-        abstract void accept(Row row, Comparable<?>[] arr);
+        abstract void accept(Row row, Object[] arr);
     }
     
     private static class RowMapper extends Mapper {
         final int index;
-        final Function<? super Row, ? extends Comparable<?>> mapper;
+        final Function<? super Row, ?> mapper;
         
-        RowMapper(int index, Function<? super Row, ? extends Comparable<?>> mapper) {
+        RowMapper(int index, Function<? super Row, ?> mapper) {
             this.index = index;
             this.mapper = mapper;
         }
         
         @Override
-        void accept(Row row, Comparable<?>[] arr) {
+        void accept(Row row, Object[] arr) {
             arr[index] = mapper.apply(row);
         }
     }
@@ -136,7 +136,7 @@ public class SelectAPI {
             this.mapper = mapper;
         }
         
-        public <U extends Comparable<? super U>> Cols<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
+        public <U> Cols<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
             int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
             ObjMapper def = new ObjMapper(index, mapper);
             if (index == definitions.size())
@@ -147,21 +147,21 @@ public class SelectAPI {
         }
         
         @Override
-        void accept(Row row, Comparable<?>[] arr) {
+        void accept(Row row, Object[] arr) {
             T obj = mapper.apply(row);
             children.forEach(child -> child.accept(obj, arr));
         }
     
         private class ObjMapper {
             final int index;
-            final Function<? super T, ? extends Comparable<?>> mapper;
+            final Function<? super T, ?> mapper;
             
-            ObjMapper(int index, Function<? super T, ? extends Comparable<?>> mapper) {
+            ObjMapper(int index, Function<? super T, ?> mapper) {
                 this.index = index;
                 this.mapper = mapper;
             }
             
-            void accept(T in, Comparable<?>[] arr) {
+            void accept(T in, Object[] arr) {
                 arr[index] = mapper.apply(in);
             }
             

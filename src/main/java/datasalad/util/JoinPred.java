@@ -1,19 +1,14 @@
 package datasalad.util;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.BiPredicate;
 import java.util.function.Predicate;
 
+import static datasalad.util.UnsafeUtils.DEFAULT_COMPARATOR;
+
 public class JoinPred {
-    /**
-     * Natural order, nulls first/lowest.
-     */
-    private static final Comparator<Comparable<Object>> DEFAULT_ORDER =
-        (a, b) -> a == null ? (b == null ? 0 : -1) : a.compareTo(b);
-    
     JoinPred() {} // Prevent default public constructor
     
     BiPredicate<? super Row, ? super Row> toPredicate() {
@@ -62,10 +57,10 @@ public class JoinPred {
             switch (op) {
                 case EQ:  return (lt, rt) ->  Objects.equals(left.get(lt, rt), right.get(lt, rt));
                 case NEQ: return (lt, rt) -> !Objects.equals(left.get(lt, rt), right.get(lt, rt));
-                case GT:  return (lt, rt) -> DEFAULT_ORDER.compare(cast(left.get(lt, rt)), cast(right.get(lt, rt))) >  0;
-                case GTE: return (lt, rt) -> DEFAULT_ORDER.compare(cast(left.get(lt, rt)), cast(right.get(lt, rt))) >= 0;
-                case LT:  return (lt, rt) -> DEFAULT_ORDER.compare(cast(left.get(lt, rt)), cast(right.get(lt, rt))) <  0;
-                case LTE: return (lt, rt) -> DEFAULT_ORDER.compare(cast(left.get(lt, rt)), cast(right.get(lt, rt))) <= 0;
+                case GT:  return (lt, rt) -> DEFAULT_COMPARATOR.compare(left.get(lt, rt), right.get(lt, rt)) >  0;
+                case GTE: return (lt, rt) -> DEFAULT_COMPARATOR.compare(left.get(lt, rt), right.get(lt, rt)) >= 0;
+                case LT:  return (lt, rt) -> DEFAULT_COMPARATOR.compare(left.get(lt, rt), right.get(lt, rt)) <  0;
+                case LTE: return (lt, rt) -> DEFAULT_COMPARATOR.compare(left.get(lt, rt), right.get(lt, rt)) <= 0;
                 default: throw new AssertionError();
             }
         }
@@ -140,11 +135,6 @@ public class JoinPred {
         BiPredicate<? super Row, ? super Row> toPredicate() {
             return predicate;
         }
-    }
-    
-    @SuppressWarnings("unchecked")
-    private static <T> T cast(Object o) {
-        return (T) o;
     }
     
     interface Visitor {

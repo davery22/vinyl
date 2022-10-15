@@ -61,7 +61,7 @@ public class DatasetStream implements Stream<Row> {
     }
     
     public Dataset toDataset() {
-        return new Dataset(header, stream.map(row -> row.data).toArray(Comparable[][]::new));
+        return new Dataset(header, stream.map(row -> row.data).toArray(Object[][]::new));
     }
     
     public Aux<Row> aux() {
@@ -166,7 +166,7 @@ public class DatasetStream implements Stream<Row> {
     
     @Override
     public DatasetStream sorted() {
-        return new DatasetStream(header, stream.sorted(Row.HEADLESS_COMPARATOR));
+        return new DatasetStream(header, stream.sorted(UnsafeUtils.HEADLESS_ROW_COMPARATOR));
     }
     
     @Override

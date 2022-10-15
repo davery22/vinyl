@@ -12,7 +12,7 @@ public class MapAPI<T> {
     
     MapAPI() {} // Prevent default public constructor
     
-    public <U extends Comparable<? super U>> MapAPI<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
+    public <U> MapAPI<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
         int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
         ColumnMapper<T> def = new ColumnMapper<>(index, mapper);
         if (index == definitions.size())
@@ -34,7 +34,7 @@ public class MapAPI<T> {
         int size = finalMappers.length;
         Header nextHeader = new Header(finalIndexByColumn);
         Stream<Row> nextStream = stream.stream.map(it -> {
-            Comparable<?>[] arr = new Comparable[size];
+            Object[] arr = new Object[size];
             for (ColumnMapper<T> mapper : finalMappers)
                 mapper.accept(it, arr);
             return new Row(nextHeader, arr);
@@ -53,9 +53,9 @@ public class MapAPI<T> {
         
         int size = definitions.size();
         return Collector.of(
-            () -> new ArrayList<Comparable<?>[]>(),
+            () -> new ArrayList<Object[]>(),
             (a, t) -> {
-                Comparable<?>[] arr = new Comparable[size];
+                Object[] arr = new Object[size];
                 for (ColumnMapper<T> mapper : finalMappers)
                     mapper.accept(t, arr);
                 a.add(arr);
@@ -64,20 +64,20 @@ public class MapAPI<T> {
                 a.addAll(b);
                 return a;
             },
-            a -> new Dataset(new Header(finalIndexByColumn), a.toArray(Comparable<?>[][]::new))
+            a -> new Dataset(new Header(finalIndexByColumn), a.toArray(Object[][]::new))
         );
     }
     
     private static class ColumnMapper<T> {
         final int index;
-        final Function<? super T, ? extends Comparable<?>> mapper;
+        final Function<? super T, ?> mapper;
         
-        ColumnMapper(int index, Function<? super T, ? extends Comparable<?>> mapper) {
+        ColumnMapper(int index, Function<? super T, ?> mapper) {
             this.index = index;
             this.mapper = mapper;
         }
         
-        void accept(T in, Comparable<?>[] arr) {
+        void accept(T in, Object[] arr) {
             arr[index] = mapper.apply(in);
         }
     }

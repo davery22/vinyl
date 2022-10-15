@@ -7,6 +7,8 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
+import static datasalad.util.UnsafeUtils.cast;
+
 public class AggregateAPI {
     private final DatasetStream stream;
     private final Map<Column<?>, Integer> indexByColumn = new HashMap<>();
@@ -20,7 +22,7 @@ public class AggregateAPI {
         return keyHelper(true, column);
     }
     
-    public <T extends Comparable<? super T>> AggregateAPI tempKey(Column<T> column, Function<? super Row, ? extends T> mapper) {
+    public <T> AggregateAPI tempKey(Column<T> column, Function<? super Row, ? extends T> mapper) {
         return keyHelper(true, column, mapper);
     }
     
@@ -28,7 +30,7 @@ public class AggregateAPI {
         return keyHelper(false, column);
     }
     
-    public <T extends Comparable<? super T>> AggregateAPI key(Column<T> column, Function<? super Row, ? extends T> mapper) {
+    public <T> AggregateAPI key(Column<T> column, Function<? super Row, ? extends T> mapper) {
         return keyHelper(false, column, mapper);
     }
     
@@ -44,7 +46,7 @@ public class AggregateAPI {
         return this;
     }
     
-    private <T extends Comparable<? super T>> AggregateAPI keyHelper(boolean isTemp, Column<T> column, Function<? super Row, ? extends T> mapper) {
+    private <T> AggregateAPI keyHelper(boolean isTemp, Column<T> column, Function<? super Row, ? extends T> mapper) {
         int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
         KeyRowMapper def = new KeyRowMapper(isTemp, column, mapper);
         if (index == definitions.size())
@@ -54,7 +56,7 @@ public class AggregateAPI {
         return this;
     }
     
-    public <T extends Comparable<? super T>, A> AggregateAPI agg(Column<T> column, Collector<? super Row, A, ? extends T> collector) {
+    public <T, A> AggregateAPI agg(Column<T> column, Collector<? super Row, A, ? extends T> collector) {
         int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
         AggRowCollector def = new AggRowCollector(column, collector);
         if (index == definitions.size())
@@ -152,9 +154,9 @@ public class AggregateAPI {
         if (keyIndexes.isEmpty()) {
             nextStream = lazyCollectingStream(downstream)
                 .map(aggs -> {
-                    Comparable<?>[] arr = new Comparable[size];
+                    Object[] arr = new Object[size];
                     for (int i = 0; i < aggIndexes.size(); i++)
-                        arr[aggIndexes.get(i)] = (Comparable<?>) aggs.get(i);
+                        arr[aggIndexes.get(i)] = aggs.get(i);
                     return new Row(nextHeader, arr);
                 });
         } else {
@@ -164,23 +166,23 @@ public class AggregateAPI {
                 .flatMap(map -> map.entrySet().stream())
                 .map(
                     hasTempKeys ? e -> {
-                        Comparable<?>[] arr = new Comparable[size];
+                        Object[] arr = new Object[size];
                         List<?> keys = e.getKey();
                         List<?> aggs = e.getValue();
                         for (int i = 0; i < keyIndexes.size(); i++)
                             if (keyIndexes.get(i) != -1) // Skip if marked
-                                arr[keyIndexes.get(i)] = (Comparable<?>) keys.get(i);
+                                arr[keyIndexes.get(i)] = keys.get(i);
                         for (int i = 0; i < aggIndexes.size(); i++)
-                            arr[aggIndexes.get(i)] = (Comparable<?>) aggs.get(i);
+                            arr[aggIndexes.get(i)] = aggs.get(i);
                         return new Row(nextHeader, arr);
                     } : e -> {
-                        Comparable<?>[] arr = new Comparable[size];
+                        Object[] arr = new Object[size];
                         List<?> keys = e.getKey();
                         List<?> aggs = e.getValue();
                         for (int i = 0; i < keyIndexes.size(); i++)
-                            arr[keyIndexes.get(i)] = (Comparable<?>) keys.get(i);
+                            arr[keyIndexes.get(i)] = keys.get(i);
                         for (int i = 0; i < aggIndexes.size(); i++)
-                            arr[aggIndexes.get(i)] = (Comparable<?>) aggs.get(i);
+                            arr[aggIndexes.get(i)] = aggs.get(i);
                         return new Row(nextHeader, arr);
                     });
         }
@@ -248,11 +250,6 @@ public class AggregateAPI {
         );
     }
     
-    @SuppressWarnings("unchecked")
-    private static <T> T cast(Object o) {
-        return (T) o;
-    }
-    
     private abstract static class Mapper {
         abstract void accept(Row row, Object[] arr);
     }
@@ -265,10 +262,10 @@ public class AggregateAPI {
     private static class KeyRowMapper extends Mapper {
         final boolean isTemp;
         final Column<?> column;
-        final Function<? super Row, ? extends Comparable<?>> mapper;
+        final Function<? super Row, ?> mapper;
         int localIndex;
     
-        KeyRowMapper(boolean isTemp, Column<?> column, Function<? super Row, ? extends Comparable<?>> mapper) {
+        KeyRowMapper(boolean isTemp, Column<?> column, Function<? super Row, ?> mapper) {
             this.isTemp = isTemp;
             this.column = column;
             this.mapper = mapper;
@@ -282,16 +279,16 @@ public class AggregateAPI {
     
     private static class AggRowCollector extends CollectorBox {
         final Column<?> column;
-        final Collector<? super Row, ?, ? extends Comparable<?>> collector;
+        final Collector<? super Row, ?, ?> collector;
         int localIndex;
     
-        AggRowCollector(Column<?> column, Collector<? super Row, ?, ? extends Comparable<?>> collector) {
+        AggRowCollector(Column<?> column, Collector<? super Row, ?, ?> collector) {
             this.column = column;
             this.collector = collector;
         }
         
         @Override
-        Collector<? super Row, ?, ? extends Comparable<?>> collector() {
+        Collector<? super Row, ?, ?> collector() {
             return collector;
         }
         
@@ -309,15 +306,15 @@ public class AggregateAPI {
             this.mapper = mapper;
         }
     
-        public <U extends Comparable<? super U>> Keys<T> tempKey(Column<U> column, Function<? super T, ? extends U> mapper) {
+        public <U> Keys<T> tempKey(Column<U> column, Function<? super T, ? extends U> mapper) {
             return keyHelper(true, column, mapper);
         }
         
-        public <U extends Comparable<? super U>> Keys<T> key(Column<U> column, Function<? super T, ? extends U> mapper) {
+        public <U> Keys<T> key(Column<U> column, Function<? super T, ? extends U> mapper) {
             return keyHelper(false, column, mapper);
         }
         
-        private <U extends Comparable<? super U>> Keys<T> keyHelper(boolean isTemp, Column<U> column, Function<? super T, ? extends U> mapper) {
+        private <U> Keys<T> keyHelper(boolean isTemp, Column<U> column, Function<? super T, ? extends U> mapper) {
             int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
             KeyObjMapper def = new KeyObjMapper(isTemp, column, mapper);
             if (index == definitions.size())
@@ -336,10 +333,10 @@ public class AggregateAPI {
         private class KeyObjMapper {
             final boolean isTemp;
             final Column<?> column;
-            final Function<? super T, ? extends Comparable<?>> mapper;
+            final Function<? super T, ?> mapper;
             int localIndex;
         
-            KeyObjMapper(boolean isTemp, Column<?> column, Function<? super T, ? extends Comparable<?>> mapper) {
+            KeyObjMapper(boolean isTemp, Column<?> column, Function<? super T, ?> mapper) {
                 this.isTemp = isTemp;
                 this.column = column;
                 this.mapper = mapper;
@@ -367,7 +364,7 @@ public class AggregateAPI {
             this.collector = collector;
         }
         
-        public <U extends Comparable<? super U>> Aggs<T> agg(Column<U> column, Function<? super T, ? extends U> mapper) {
+        public <U> Aggs<T> agg(Column<U> column, Function<? super T, ? extends U> mapper) {
             int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
             AggObjMapper def = new AggObjMapper(column, mapper);
             if (index == definitions.size())
@@ -391,10 +388,10 @@ public class AggregateAPI {
         
         private class AggObjMapper {
             final Column<?> column;
-            final Function<? super T, ? extends Comparable<?>> mapper;
+            final Function<? super T, ?> mapper;
             int localIndex;
     
-            AggObjMapper(Column<?> column, Function<? super T, ? extends Comparable<?>> mapper) {
+            AggObjMapper(Column<?> column, Function<? super T, ?> mapper) {
                 this.column = column;
                 this.mapper = mapper;
             }

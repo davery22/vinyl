@@ -19,11 +19,21 @@ public class AggregateAPI {
     }
     
     public AggregateAPI tempKey(Column<?> column) {
-        return keyHelper(true, column);
+        return tempKey(tempColumn(), column);
     }
     
-    public <T> AggregateAPI tempKey(Column<T> column, Function<? super Row, ? extends T> mapper) {
-        return keyHelper(true, column, mapper);
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public AggregateAPI tempKey(Column<?> id, Column<?> column) {
+        Locator locator = new Locator(column, stream.header.indexOf(column));
+        return keyHelper(true, id, row -> row.get(locator));
+    }
+    
+    public AggregateAPI tempKey(Function<? super Row, ?> mapper) {
+        return keyHelper(true, tempColumn(), mapper);
+    }
+    
+    public AggregateAPI tempKey(Column<?> id, Function<? super Row, ?> mapper) {
+        return keyHelper(true, id, mapper);
     }
     
     public AggregateAPI key(Column<?> column) {
@@ -37,16 +47,10 @@ public class AggregateAPI {
     @SuppressWarnings({"unchecked", "rawtypes"})
     private AggregateAPI keyHelper(boolean isTemp, Column<?> column) {
         Locator locator = new Locator(column, stream.header.indexOf(column));
-        int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-        KeyRowMapper def = new KeyRowMapper(isTemp, column, row -> row.get(locator));
-        if (index == definitions.size())
-            definitions.add(def);
-        else
-            definitions.set(index, def);
-        return this;
+        return keyHelper(isTemp, column, row -> row.get(locator));
     }
     
-    private <T> AggregateAPI keyHelper(boolean isTemp, Column<T> column, Function<? super Row, ? extends T> mapper) {
+    private <T> AggregateAPI keyHelper(boolean isTemp, Column<?> column, Function<? super Row, ? extends T> mapper) {
         int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
         KeyRowMapper def = new KeyRowMapper(isTemp, column, mapper);
         if (index == definitions.size())
@@ -250,6 +254,10 @@ public class AggregateAPI {
         );
     }
     
+    private Column<?> tempColumn() {
+        return new Column<>("<anonymous>");
+    }
+    
     private abstract static class Mapper {
         abstract void accept(Row row, Object[] arr);
     }
@@ -306,7 +314,11 @@ public class AggregateAPI {
             this.mapper = mapper;
         }
     
-        public <U> Keys<T> tempKey(Column<U> column, Function<? super T, ? extends U> mapper) {
+        public Keys<T> tempKey(Function<? super T, ?> mapper) {
+            return keyHelper(true, tempColumn(), mapper);
+        }
+        
+        public Keys<T> tempKey(Column<?> column, Function<? super T, ?> mapper) {
             return keyHelper(true, column, mapper);
         }
         
@@ -314,7 +326,7 @@ public class AggregateAPI {
             return keyHelper(false, column, mapper);
         }
         
-        private <U> Keys<T> keyHelper(boolean isTemp, Column<U> column, Function<? super T, ? extends U> mapper) {
+        private <U> Keys<T> keyHelper(boolean isTemp, Column<?> column, Function<? super T, ? extends U> mapper) {
             int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
             KeyObjMapper def = new KeyObjMapper(isTemp, column, mapper);
             if (index == definitions.size())

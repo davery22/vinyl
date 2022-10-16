@@ -167,98 +167,44 @@ public class JoinAPI {
         
         Select() {} // Prevent default public constructor
         
-        @SuppressWarnings({"unchecked", "rawtypes"})
         public Select lall() {
-            Column<?>[] columns = left.header.columns;
-            for (int i = 0; i < columns.length; i++) {
-                Column<?> column = columns[i];
-                Locator locator = new Locator(column, i);
-                int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-                RowMapper def = new RowMapper(index, (lt, rt) -> lt.get(locator));
-                if (index == definitions.size())
-                    definitions.add(def);
-                else
-                    definitions.set(index, def);
-            }
+            for (Column<?> column : left.header.columns)
+                lcol(column);
             return this;
         }
     
-        @SuppressWarnings({"unchecked", "rawtypes"})
         public Select rall() {
-            Column<?>[] columns = right.header.columns;
-            for (int i = 0; i < columns.length; i++) {
-                Column<?> column = columns[i];
-                Locator locator = new Locator(column, i);
-                int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-                RowMapper def = new RowMapper(index, (lt, rt) -> rt.get(locator));
-                if (index == definitions.size())
-                    definitions.add(def);
-                else
-                    definitions.set(index, def);
-            }
+            for (Column<?> column : right.header.columns)
+                rcol(column);
             return this;
         }
     
-        @SuppressWarnings({"unchecked", "rawtypes"})
         public Select lallExcept(Column<?>... excluded) {
             Set<Column<?>> excludedSet = Set.of(excluded);
-            Column<?>[] columns = left.header.columns;
-            for (int i = 0; i < columns.length; i++) {
-                Column<?> column = columns[i];
-                if (excludedSet.contains(column))
-                    continue;
-                Locator locator = new Locator(column, i);
-                int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-                RowMapper def = new RowMapper(index, (lt, rt) -> lt.get(locator));
-                if (index == definitions.size())
-                    definitions.add(def);
-                else
-                    definitions.set(index, def);
-            }
+            for (Column<?> column : left.header.columns)
+                if (!excludedSet.contains(column))
+                    lcol(column);
             return this;
         }
     
-        @SuppressWarnings({"unchecked", "rawtypes"})
         public Select rallExcept(Column<?>... excluded) {
             Set<Column<?>> excludedSet = Set.of(excluded);
-            Column<?>[] columns = right.header.columns;
-            for (int i = 0; i < columns.length; i++) {
-                Column<?> column = columns[i];
-                if (excludedSet.contains(column))
-                    continue;
-                Locator locator = new Locator(column, i);
-                int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-                RowMapper def = new RowMapper(index, (lt, rt) -> rt.get(locator));
-                if (index == definitions.size())
-                    definitions.add(def);
-                else
-                    definitions.set(index, def);
-            }
+            for (Column<?> column : right.header.columns)
+                if (!excludedSet.contains(column))
+                    rcol(column);
             return this;
         }
     
         @SuppressWarnings({"unchecked", "rawtypes"})
         public Select lcol(Column<?> column) {
             Locator locator = new Locator(column, left.header.indexOf(column));
-            int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-            RowMapper def = new RowMapper(index, (lt, rt) -> lt.get(locator));
-            if (index == definitions.size())
-                definitions.add(def);
-            else
-                definitions.set(index, def);
-            return this;
+            return col((Column) column, (lt, rt) -> lt.get(locator));
         }
     
         @SuppressWarnings({"unchecked", "rawtypes"})
         public Select rcol(Column<?> column) {
             Locator locator = new Locator(column, right.header.indexOf(column));
-            int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-            RowMapper def = new RowMapper(index, (lt, rt) -> rt.get(locator));
-            if (index == definitions.size())
-                definitions.add(def);
-            else
-                definitions.set(index, def);
-            return this;
+            return col((Column) column, (lt, rt) -> rt.get(locator));
         }
         
         public <T> Select col(Column<T> column, BiFunction<? super Row, ? super Row, ? extends T> mapper) {

@@ -7,6 +7,10 @@ public final class Column<T> {
         this.name = name;
     }
     
+    public T get(Row row) {
+        return row.get(this);
+    }
+    
     @Override
     public String toString() {
         return name;

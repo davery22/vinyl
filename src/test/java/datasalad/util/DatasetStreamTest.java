@@ -20,22 +20,22 @@ public class DatasetStreamTest {
     void test() {
         Dataset data = DatasetStream.aux(IntStream.range(0, 100)).boxed()
             .mapToDataset($->$
-                .col(COL_A, it -> it + 1)
-                .col(COL_B, it -> it + 2)
-                .col(COL_D, it -> it + 3)
+                .col(COL_A, i -> i + 1)
+                .col(COL_B, i -> i + 2)
+                .col(COL_D, i -> i + 3)
             )
             .select($->$
                 .allExcept(COL_D)
-                .col(COL_C, r -> r.get(COL_D))
+                .col(COL_C, COL_D::get)
             )
             .aggregate($->$
-                .key(COL_A)
-                .tempKey(COL_B, r -> r.get(COL_B) + r.get(COL_C))
-                .agg(COL_C, summingInt(r -> r.get(COL_A)))
-                .aggs(summarizingInt(r -> r.get(COL_B)), $$->$$
-                    .agg(COL_D, IntSummaryStatistics::getMax)
-                    .agg(COL_E, IntSummaryStatistics::getMin)
-                    .agg(COL_F, IntSummaryStatistics::getSum)
+                .keyCol(COL_A)
+                .key(row -> row.get(COL_B) + row.get(COL_C))
+                .aggCol(COL_C, summingInt(COL_A::get))
+                .aggs(summarizingInt(COL_B::get), $$->$$
+                    .aggCol(COL_D, IntSummaryStatistics::getMax)
+                    .aggCol(COL_E, IntSummaryStatistics::getMin)
+                    .aggCol(COL_F, IntSummaryStatistics::getSum)
                 )
             )
             .toDataset();
@@ -49,13 +49,12 @@ public class DatasetStreamTest {
         
 //        Dataset selfJoined = data.stream()
 //            .join(data.stream(), $$->$$
-//                .on($-> $.left(COL_A).eq($.right(COL_B)))
+//                .on($-> $.eq($.left(COL_A), $.right(COL_B)))
 //                .on($->
 //                    $.not(
 //                        $.any(
 //                            $.eq($.val(3), $.val("")),
-//                            $.gte($.left(COL_A), $.right(COL_D)),
-//
+//                            $.gte($.left(COL_A), $.right(COL_D))
 //                        )
 //                    )
 //                )

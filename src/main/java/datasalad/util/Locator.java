@@ -9,8 +9,12 @@ public final class Locator<T> {
         this.index = index;
     }
     
+    public T get(Row row) {
+        return row.get(this);
+    }
+    
     @Override
     public String toString() {
-        return column.toString();
+        return column.toString() + " @ " + index;
     }
 }

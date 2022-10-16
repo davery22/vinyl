@@ -18,29 +18,23 @@ public class AggregateAPI {
         this.stream = stream;
     }
     
-    public AggregateAPI tempKey(Column<?> column) {
-        return tempKey(tempColumn(), column);
-    }
-    
     @SuppressWarnings({"unchecked", "rawtypes"})
-    public AggregateAPI tempKey(Column<?> id, Column<?> column) {
+    public AggregateAPI key(Column<?> column) {
         Locator locator = new Locator(column, stream.header.indexOf(column));
-        return keyHelper(true, id, row -> row.get(locator));
+        return keyHelper(true, tempColumn(), row -> row.get(locator));
     }
     
-    public AggregateAPI tempKey(Function<? super Row, ?> mapper) {
+    public AggregateAPI key(Function<? super Row, ?> mapper) {
         return keyHelper(true, tempColumn(), mapper);
     }
     
-    public AggregateAPI tempKey(Column<?> id, Function<? super Row, ?> mapper) {
-        return keyHelper(true, id, mapper);
-    }
+    // TODO: Add ability to overwrite temporary keys?
     
-    public AggregateAPI key(Column<?> column) {
+    public AggregateAPI keyCol(Column<?> column) {
         return keyHelper(false, column);
     }
     
-    public <T> AggregateAPI key(Column<T> column, Function<? super Row, ? extends T> mapper) {
+    public <T> AggregateAPI keyCol(Column<T> column, Function<? super Row, ? extends T> mapper) {
         return keyHelper(false, column, mapper);
     }
     
@@ -60,13 +54,25 @@ public class AggregateAPI {
         return this;
     }
     
-    public <T, A> AggregateAPI agg(Column<T> column, Collector<? super Row, A, ? extends T> collector) {
+    public <T, A> AggregateAPI aggCol(Column<T> column, Collector<? super Row, A, ? extends T> collector) {
         int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
         AggRowCollector def = new AggRowCollector(column, collector);
         if (index == definitions.size())
             definitions.add(def);
         else
             definitions.set(index, def);
+        return this;
+    }
+    
+    public AggregateAPI keyCols(Column<?>... columns) {
+        for (Column<?> column : columns)
+            keyCol(column);
+        return this;
+    }
+    
+    public AggregateAPI keys(Column<?>... columns) {
+        for (Column<?> column : columns)
+            key(column);
         return this;
     }
     
@@ -314,15 +320,15 @@ public class AggregateAPI {
             this.mapper = mapper;
         }
     
-        public Keys<T> tempKey(Function<? super T, ?> mapper) {
+        public Keys<T> key(Function<? super T, ?> mapper) {
             return keyHelper(true, tempColumn(), mapper);
         }
         
-        public Keys<T> tempKey(Column<?> column, Function<? super T, ?> mapper) {
+        public Keys<T> key(Column<?> column, Function<? super T, ?> mapper) {
             return keyHelper(true, column, mapper);
         }
         
-        public <U> Keys<T> key(Column<U> column, Function<? super T, ? extends U> mapper) {
+        public <U> Keys<T> keyCol(Column<U> column, Function<? super T, ? extends U> mapper) {
             return keyHelper(false, column, mapper);
         }
         
@@ -376,7 +382,7 @@ public class AggregateAPI {
             this.collector = collector;
         }
         
-        public <U> Aggs<T> agg(Column<U> column, Function<? super T, ? extends U> mapper) {
+        public <U> Aggs<T> aggCol(Column<U> column, Function<? super T, ? extends U> mapper) {
             int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
             AggObjMapper def = new AggObjMapper(column, mapper);
             if (index == definitions.size())

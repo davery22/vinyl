@@ -15,8 +15,10 @@ class UnsafeUtils {
     static Comparator<Object> DEFAULT_COMPARATOR = (a, b) -> {
         if (a == b)
             return 0;
-        if (a == null || b == null)
-            return a == null ? -1 : 1;
+        if (a == null)
+            return -1;
+        if (b == null)
+            return 1;
         return ((Comparable) a).compareTo(b);
     };
     

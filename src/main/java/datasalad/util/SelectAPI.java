@@ -44,8 +44,19 @@ public class SelectAPI {
         return this;
     }
     
+    public SelectAPI cols(Column<?>... columns) {
+        for (Column<?> column : columns)
+            col(column);
+        return this;
+    }
+    
     public <T> SelectAPI cols(Function<? super Row, ? extends T> mapper, Consumer<Cols<T>> config) {
         config.accept(new Cols<>(mapper));
+        return this;
+    }
+    
+    public SelectAPI window(Consumer<Window> config) {
+        config.accept(new Window());
         return this;
     }
     
@@ -146,5 +157,69 @@ public class SelectAPI {
                 return Cols.this;
             }
         }
+    }
+    
+    public class Window {
+        public Window key(Column<?> column) {
+            return this;
+        }
+        // and so on...
+        
+        public Window keys(Column<?>... columns) {
+            for (Column<?> column : columns)
+                key(column);
+            return this;
+        }
+        
+        public <T> Window keys(Function<? super Row, ? extends T> mapper,
+                               Consumer<Window.Keys<T>> config) {
+            return this;
+        }
+        
+        public <T> Window cols(Function<? super List<Row>, ? extends T> mapper,
+                               Consumer<Window.Cols<T>> config) {
+            return this;
+        }
+    
+        public <T> Window cols(Comparator<? super Row> comparator,
+                               Consumer<Window.Cols<List<Row>>> config) {
+            return this;
+        }
+    
+        public <T> Window cols(Comparator<? super Row> comparator,
+                               Function<? super List<Row>, ? extends T> mapper,
+                               Consumer<Window.Cols<T>> config) {
+            return this;
+        }
+    
+        public class Keys<T> {
+        
+        }
+        
+        public class Cols<T> {
+        
+        }
+        
+        // ROW_NUMBER() OVER(PARTITION BY columnA, columnB ORDER BY column C)
+        // .window($->$.tempKey(columnA).tempKey(columnB).cols(comparing(row -> row.get(columnC)), $->$.col(rowNumber, list -> IntStream.range(0, list.size()).boxed())));
+        // .window($->$
+        //     .tempKey(columnA)
+        //     .tempKey(columnB)
+        //     .cols(comparing(row -> row.get(columnC)), $->$
+        //         .col(rowNumber, list -> IntStream.range(0, list.size()).boxed())
+        //     )
+        // );
+        //
+        // .window($->$
+        //     .partitionBy(columnA, columnB)
+        //     .orderBy(columnC, $->$
+        //         .col(rowNumber, x -> IntStream.range(0, x.size()).boxed())
+        //     )
+        // )
+        //
+        // .window($->$
+        //     .partitionBy(columnA, columnB)
+        //     .orderBy(columnC, $->$.col(rowNumber, rowNumber())
+        // )
     }
 }

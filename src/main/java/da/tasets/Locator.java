@@ -1,4 +1,4 @@
-package datasalad.util;
+package da.tasets;
 
 public final class Locator<T> {
     final Column<T> column;

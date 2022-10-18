@@ -1,4 +1,4 @@
-package datasalad.util;
+package da.tasets;
 
 import org.junit.jupiter.api.Test;
 

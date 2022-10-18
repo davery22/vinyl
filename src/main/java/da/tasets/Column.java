@@ -1,4 +1,4 @@
-package datasalad.util;
+package da.tasets;
 
 public final class Column<T> {
     private final String name;

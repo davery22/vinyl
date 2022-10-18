@@ -1,4 +1,4 @@
-package datasalad.util;
+package da.tasets;
 
 import java.util.*;
 import java.util.function.*;
@@ -6,8 +6,6 @@ import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
-
-import static datasalad.util.UnsafeUtils.cast;
 
 public class AggregateAPI {
     private final DatasetStream stream;
@@ -242,17 +240,17 @@ public class AggregateAPI {
             },
             (a, t) -> {
                 for (int i = 0; i < size; i++)
-                    accumulators[i].accept(cast(a[i]), cast(t));
+                    accumulators[i].accept(UnsafeUtils.cast(a[i]), UnsafeUtils.cast(t));
             },
             (a, b) -> {
                 for (int i = 0; i < size; i++)
-                    a[i] = combiners[i].apply(cast(a[i]), cast(b[i]));
+                    a[i] = combiners[i].apply(UnsafeUtils.cast(a[i]), UnsafeUtils.cast(b[i]));
                 return a;
             },
             a -> {
                 Object[] arr = new Object[aggsSize];
                 for (int i = 0; i < size; i++) {
-                    Object it = finishers[i].apply(cast(a[i]));
+                    Object it = finishers[i].apply(UnsafeUtils.cast(a[i]));
                     collectorBoxes.get(i).accept(it, arr);
                 }
                 return Arrays.asList(arr);

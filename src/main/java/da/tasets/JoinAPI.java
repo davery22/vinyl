@@ -1,4 +1,4 @@
-package datasalad.util;
+package da.tasets;
 
 import java.util.*;
 import java.util.function.*;

@@ -1,12 +1,10 @@
-package datasalad.util;
+package da.tasets;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.BiPredicate;
 import java.util.function.Predicate;
-
-import static datasalad.util.UnsafeUtils.DEFAULT_COMPARATOR;
 
 public class JoinPred {
     JoinPred() {} // Prevent default public constructor
@@ -57,10 +55,10 @@ public class JoinPred {
             switch (op) {
                 case EQ:  return (lt, rt) ->  Objects.equals(left.get(lt, rt), right.get(lt, rt));
                 case NEQ: return (lt, rt) -> !Objects.equals(left.get(lt, rt), right.get(lt, rt));
-                case GT:  return (lt, rt) -> DEFAULT_COMPARATOR.compare(left.get(lt, rt), right.get(lt, rt)) >  0;
-                case GTE: return (lt, rt) -> DEFAULT_COMPARATOR.compare(left.get(lt, rt), right.get(lt, rt)) >= 0;
-                case LT:  return (lt, rt) -> DEFAULT_COMPARATOR.compare(left.get(lt, rt), right.get(lt, rt)) <  0;
-                case LTE: return (lt, rt) -> DEFAULT_COMPARATOR.compare(left.get(lt, rt), right.get(lt, rt)) <= 0;
+                case GT:  return (lt, rt) -> UnsafeUtils.DEFAULT_COMPARATOR.compare(left.get(lt, rt), right.get(lt, rt)) >  0;
+                case GTE: return (lt, rt) -> UnsafeUtils.DEFAULT_COMPARATOR.compare(left.get(lt, rt), right.get(lt, rt)) >= 0;
+                case LT:  return (lt, rt) -> UnsafeUtils.DEFAULT_COMPARATOR.compare(left.get(lt, rt), right.get(lt, rt)) <  0;
+                case LTE: return (lt, rt) -> UnsafeUtils.DEFAULT_COMPARATOR.compare(left.get(lt, rt), right.get(lt, rt)) <= 0;
                 default: throw new AssertionError();
             }
         }

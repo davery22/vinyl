@@ -1,4 +1,4 @@
-package datasalad.util;
+package da.tasets;
 
 import java.util.function.Consumer;
 import java.util.stream.Collector;

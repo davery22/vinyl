@@ -7,6 +7,9 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
+import static da.tasets.UnsafeUtils.cast;
+import static da.tasets.UnsafeUtils.tempColumn;
+
 public class AggregateAPI {
     private final DatasetStream stream;
     private final Map<Column<?>, Integer> indexByColumn = new HashMap<>();
@@ -240,26 +243,22 @@ public class AggregateAPI {
             },
             (a, t) -> {
                 for (int i = 0; i < size; i++)
-                    accumulators[i].accept(UnsafeUtils.cast(a[i]), UnsafeUtils.cast(t));
+                    accumulators[i].accept(cast(a[i]), cast(t));
             },
             (a, b) -> {
                 for (int i = 0; i < size; i++)
-                    a[i] = combiners[i].apply(UnsafeUtils.cast(a[i]), UnsafeUtils.cast(b[i]));
+                    a[i] = combiners[i].apply(cast(a[i]), cast(b[i]));
                 return a;
             },
             a -> {
                 Object[] arr = new Object[aggsSize];
                 for (int i = 0; i < size; i++) {
-                    Object it = finishers[i].apply(UnsafeUtils.cast(a[i]));
+                    Object it = finishers[i].apply(cast(a[i]));
                     collectorBoxes.get(i).accept(it, arr);
                 }
                 return Arrays.asList(arr);
             }
         );
-    }
-    
-    private Column<?> tempColumn() {
-        return new Column<>("<anonymous>");
     }
     
     private abstract static class Mapper {

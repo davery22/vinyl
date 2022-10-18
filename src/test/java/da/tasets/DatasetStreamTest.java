@@ -2,6 +2,7 @@ package da.tasets;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Comparator;
 import java.util.IntSummaryStatistics;
 import java.util.stream.IntStream;
 
@@ -18,7 +19,7 @@ public class DatasetStreamTest {
     
     @Test
     void test() {
-        Dataset data = DatasetStream.aux(IntStream.range(0, 100)).boxed()
+        DatasetStream data$ = DatasetStream.aux(IntStream.range(0, 100)).boxed()
             .mapToDataset($->$
                 .col(COL_A, i -> i + 1)
                 .col(COL_B, i -> i + 2)
@@ -27,10 +28,13 @@ public class DatasetStreamTest {
             .select($->$
                 .allExcept(COL_D)
                 .col(COL_C, COL_D::get)
-            )
+            );
+        Locator<Integer> colB = data$.header().locator(COL_B);
+        Locator<Integer> colC = data$.header().locator(COL_C);
+        Dataset data = data$
             .aggregate($->$
                 .keyCol(COL_A)
-                .key(row -> row.get(COL_B) + row.get(COL_C))
+                .key(row -> row.get(colB) + row.get(colC))
                 .aggCol(COL_C, summingInt(COL_A::get))
                 .aggs(summarizingInt(COL_B::get), $$->$$
                     .aggCol(COL_D, IntSummaryStatistics::getMax)
@@ -40,7 +44,7 @@ public class DatasetStreamTest {
             )
             .toDataset();
         
-        System.out.println(data.toString());
+        System.out.println(data);
         
         System.out.println(data.stream()
             .collect(Dataset.collector($ -> data.header().selectAllExcept($, COL_D)))
@@ -64,5 +68,26 @@ public class DatasetStreamTest {
 //                )
 //            )
 //            .toDataset();
+    }
+    
+    @Test
+    void testWindowFunction1() {
+        Dataset data = DatasetStream.aux(IntStream.range(0, 100)).boxed()
+            .mapToDataset($ -> $.col(COL_A, i -> i*2))
+            .select($$ -> $$
+                .col(COL_A)
+                .window($->$
+                    .col(COL_B, Comparator.comparingInt(COL_A::get).reversed(), (rows, rx) -> IntStream.range(0, rows.size()).forEach(rx::accept))
+                    .col(COL_C, (rows, rx) -> rx.accept(rows.stream().mapToInt(COL_A::get).sum()))
+                )
+                .window($->$
+                    .key(row -> row.get(COL_A) / 10)
+                    .col(COL_D, (rows, rx) -> rx.accept(rows.stream().mapToInt(COL_A::get).max().orElseThrow()))
+                )
+            )
+            .parallel()
+            .toDataset();
+        
+        System.out.println(data);
     }
 }

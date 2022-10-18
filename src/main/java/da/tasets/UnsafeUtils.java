@@ -34,4 +34,8 @@ class UnsafeUtils {
         }
         return 0;
     };
+    
+    static Column<?> tempColumn() {
+        return new Column<>("<anonymous>");
+    }
 }

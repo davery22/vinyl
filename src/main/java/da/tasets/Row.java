@@ -5,7 +5,7 @@ import java.util.Collections;
 import java.util.List;
 
 public class Row {
-    private final Header header;
+    final Header header;
     final Object[] data;
     
     Row(Header header, Object[] data) {
@@ -29,7 +29,7 @@ public class Row {
     
     @SuppressWarnings("unchecked")
     public <T> T get(Locator<T> locator) {
-        // Throws AIOOB
+        // Throws AIOOBE
         if (header.columns[locator.index] != locator.column)
             throw new IllegalArgumentException("Invalid locator: " + locator);
         return (T) data[locator.index];

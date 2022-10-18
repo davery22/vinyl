@@ -217,6 +217,18 @@ public class JoinAPI {
             return this;
         }
         
+        public Select lcols(Column<?>... columns) {
+            for (Column<?> column : columns)
+                lcol(column);
+            return this;
+        }
+        
+        public Select rcols(Column<?>... columns) {
+            for (Column<?> column : columns)
+                rcol(column);
+            return this;
+        }
+        
         public <T> Select cols(BiFunction<? super Row, ? super Row, ? extends T> mapper, Consumer<Cols<T>> config) {
             config.accept(new Cols<>(mapper));
             return this;

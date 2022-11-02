@@ -24,37 +24,6 @@ class Header {
         return Collections.unmodifiableList(Arrays.asList(columns));
     }
     
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    public void selectAll(MapAPI<Row> config) {
-        for (int i = 0; i < columns.length; i++) {
-            Locator locator = new Locator(columns[i], i);
-            config.col((Column) columns[i], row -> row.get(locator));
-        }
-    }
-    
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    public void selectAllExcept(MapAPI<Row> config, Column<?>... excluded) {
-        Set<Column<?>> excludedSet = Set.of(excluded);
-        for (int i = 0; i < columns.length; i++) {
-            if (excludedSet.contains(columns[i]))
-                continue;
-            Locator locator = new Locator(columns[i], i);
-            config.col((Column) columns[i], row -> row.get(locator));
-        }
-    }
-    
-    public void selectAll(SelectAPI config) {
-        for (Column<?> column : columns)
-            config.col(column);
-    }
-    
-    public void selectAllExcept(SelectAPI config, Column<?>... excluded) {
-        Set<Column<?>> excludedSet = Set.of(excluded);
-        for (Column<?> column : columns)
-            if (!excludedSet.contains(column))
-                config.col(column);
-    }
-    
     @Override
     public boolean equals(Object o) {
         if (this == o)

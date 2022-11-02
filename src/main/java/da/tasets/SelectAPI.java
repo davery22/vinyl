@@ -483,64 +483,6 @@ public class SelectAPI {
                 }
             }
         }
-        
-        // ROW_NUMBER() OVER(PARTITION BY columnA, columnB ORDER BY column C)
-        //
-        // .window($->$.tempKey(columnA).tempKey(columnB).cols(comparing(row -> row.get(columnC)), $->$.col(rowNumber, list -> IntStream.range(0, list.size()).boxed())));
-        // .window($->$
-        //     .tempKey(columnA)
-        //     .tempKey(columnB)
-        //     .cols(comparing(row -> row.get(columnC)), $->$
-        //         .col(rowNumber, list -> IntStream.range(0, list.size()).boxed())
-        //     )
-        // );
-        //
-        // .window($->$
-        //     .partitionBy(columnA, columnB)
-        //     .orderBy(columnC, $->$
-        //         .col(rowNumber, x -> IntStream.range(0, x.size()).boxed())
-        //     )
-        // )
-        //
-        // .window($->$
-        //     .partitionBy(columnA, columnB)
-        //     .orderBy(columnC, $->$.col(rowNumber, rowNumber())
-        // )
-        //
-        // .window($->$
-        //     .keys(columnA, columnB)
-        //     .cols(nullsFirst(comparing(columnC::get)), $->$.col(rowNumber, rowNumber()))
-        //
-        //     .cols(order(header).ascNullsFirst(columnC), ...)
-        //
-        //     .cols($->$.asc(columnC),
-        //           $->$.col(rowNumber, rowNumber())
-        //     )
-        //
-        // rowNumber() { return list -> IntStream.range(0, list.size()).boxed(); }
-        // rowNumber() { return (list, rx) -> for (int i = 0; i < list.size(); i++) rx.accept(i); }
-        //
-        // rank(comp) {
-        //     return list -> {
-        //         int[] rank = { 1 };
-        //         IntStream.concat(IntStream.of(1),
-        //                          IntStream.range(1, list.size())
-        //                                   .map(i -> comp.apply(list.get(i-1), list.get(i)) == 0
-        //                                             ? rank[0] : rank[0] = i+1);
-        //     };
-        // }
-        //
-        // rank(comparator) {
-        //     return (list, rx) -> {
-        //         int rank = 1;
-        //         rx.accept(rank);
-        //         T prev = list.get(0);
-        //         for (int i = 1; i < list.size(); i++) {
-        //             int cmp = comparator.apply(prev, prev = list.get(i));
-        //             rx.accept(cmp == 0 ? rank : rank = i+1);
-        //         }
-        //     }
-        // }
     }
     
     // Used by window / analytical functions.

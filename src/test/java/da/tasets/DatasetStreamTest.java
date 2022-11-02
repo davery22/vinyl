@@ -16,6 +16,7 @@ public class DatasetStreamTest {
     private static final Column<Integer> COL_D = new Column<>("D");
     private static final Column<Integer> COL_E = new Column<>("E");
     private static final Column<Long> COL_F = new Column<>("F");
+    private static final Column<String> COL_S = new Column<>("S");
     
     @Test
     void test() {
@@ -45,11 +46,6 @@ public class DatasetStreamTest {
             .toDataset();
         
         System.out.println(data);
-        
-        System.out.println(data.stream()
-            .collect(Dataset.collector($ -> data.header().selectAllExcept($, COL_D)))
-            .toString()
-        );
         
 //        Dataset selfJoined = data.stream()
 //            .join(data.stream(), $$->$$
@@ -89,5 +85,25 @@ public class DatasetStreamTest {
             .toDataset();
         
         System.out.println(data);
+    }
+    
+    @Test
+    void testJoin1() {
+        Dataset data = DatasetStream.aux(IntStream.range(0, 100)).boxed()
+            .mapToDataset($ -> $.col(COL_A, i -> i))
+            .toDataset();
+        
+        Dataset joined = data.stream()
+            .select($->$.col(COL_A).col(COL_S, row -> "Hello, " + row.get(COL_A)))
+            .join(data.stream()
+                      .select($->$.col(COL_A).col(COL_S, row -> "Goodbye, " + row.get(COL_A))),
+                  $$->$$
+                      .on($->$.lt($.left(COL_A), $.right(COL_A)))
+                      .andSelect($->$.lcol(COL_A).col(COL_S, (lt, rt) -> lt.get(COL_S) + " and " + rt.get(COL_S)))
+            )
+            .parallel()
+            .toDataset();
+        
+        System.out.println(joined);
     }
 }

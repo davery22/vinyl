@@ -5,10 +5,12 @@ import java.lang.invoke.VarHandle;
 import java.util.*;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.*;
-import java.util.stream.IntStream;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
+
+import static da.tasets.UnsafeUtils.cast;
 
 public class JoinAPI {
     private final JoinType type;
@@ -43,109 +45,215 @@ public class JoinAPI {
     
     DatasetStream accept(Consumer<JoinAPI> config) {
         config.accept(this);
+    
+        // Avoid picking up side-effects from bad-actor callbacks.
         
-        if (pred == null)
-            pred = new On().all(); // cross-join
-        if (select == null)
-            select = new Select().lall().rall(); // merge columns
+        JoinPred finalPred = pred != null ? pred : new On().all(); // cross-join
+        Select finalSelect = select != null ? select : new Select().lall().rall(); // merge columns
         
-        // left/right/const | ineq/eq
-        //
-        // right-eq-left           --> point-index right
-        // right-ineq-left         --> range-index right
-        // right-in/eq-const/right --> pre-filter right
-        // rmatch                  --> pre-filter right
-        // left-in/eq-const/left   --> filter left
-        // lmatch                  --> filter left
-        // match                   --> filter both
-        //
-        // all --> nest consecutive indexes & pre-filters, until match() is reached
-        // any --> separate consecutive indexes & pre-filters
-        //
-        // 1. Describe how to build structure on the right-hand side.
-        // 2. Describe how to traverse structure and run checks.
-        //
-        // TODO:
-        //  1. Reused point-indexes: L(B) = R(C) AND ... AND L(C) = R(C)
-        //     -->   L(B) = R(C) = L(C)    [index on R(C) is reused]
-        //  2. Reused range-indexes: L(B) < R(C) AND ... AND L(C) > R(C)
-        //     -->   L(B) < R(C) < L(C)    [index on R(C) is reused]
-        //
-        // left/inner  - conditionally create right (TODO: if not created, when to close right stream?)
-        // right/outer - unconditionally create right (always close right stream), concat remainder after left
+        // Step 1: Set up the new header, and the combiner (that produces a new row from a left and a right row).
         
-        // .flatMap(left -> right.get().match(left))
-        //
-        // class Joiner {
-        //     ??? index;
-        //     // These 2 iff right or full join.
-        //     IndexedRow[] rightRows;
-        //     IndexSet indices; // TODO: Remove? Could use eg FlaggedRows?
-        //     void search(Row left, Consumer<Row> rx) {
-        //
-        //         // Inner Join
-        //         Consumer<Row> wrapper = right -> rx.accept(combine(left, right));
-        //         index.search(left, wrapper);
-        //
-        //         // Right Join
-        //         Consumer<IndexedRow> wrapper = right -> {
-        //             indices.remove(right.index);
-        //             rightRows[right.index] = null;
-        //             rx.accept(combine(left, right));
-        //         };
-        //         index.search(left, cast(wrapper));
-        //
-        //         // Left Join
-        //         class CountingConsumer implements Consumer<Row> {
-        //             boolean noneMatch = true;
-        //             void accept(Row right) {
-        //                 noneMatch = false;
-        //                 rx.accept(combine(left, right));
-        //             }
-        //             void finish() {
-        //                 if (noneMatch)
-        //                     rx.accept(combine(left, NIL_ROW));
-        //             }
-        //         }
-        //         CountingConsumer wrapper = new CountingConsumer();
-        //         index.search(left, wrapper);
-        //         wrapper.finish();
-        //
-        //         // Full Join
-        //         class CountingConsumer implements Consumer<IndexedRow> {
-        //             boolean noneMatch = true;
-        //             void accept(Row right) {
-        //                 noneMatch = false;
-        //                 indices.remove(right.index);
-        //                 rightRows[right.index] = null;
-        //                 rx.accept(combine(left, right));
-        //             }
-        //             void finish() {
-        //                 if (noneMatch)
-        //                     rx.accept(combine(left, NIL_ROW));
-        //             }
-        //         }
-        //         CountingConsumer wrapper = new CountingConsumer();
-        //         index.search(left, cast(wrapper));
-        //         wrapper.finish();
-        //     }
-        //
-        //     Spliterator<Row> remainingRight() {
-        //         return Array.stream(rightRows).filter(row -> !row.joined).spliterator();
-        //     }
-        // }
+        // Final mappers will combine ObjMapper children into their parent.
+        Map<Column<?>, Integer> finalIndexByColumn = Map.copyOf(finalSelect.indexByColumn);
+        List<Select.Mapper> finalMappers = new ArrayList<>();
+    
+        for (Object definition : finalSelect.definitions) {
+            if (definition instanceof Select.RowMapper)
+                finalMappers.add((Select.RowMapper) definition);
+            else {
+                assert definition instanceof Select.Cols.ObjMapper;
+                Select.Cols<?>.ObjMapper def = (Select.Cols<?>.ObjMapper) definition;
+                Select.Cols<?> parent = def.addToParent();
+                if (parent != null)
+                    finalMappers.add(parent);
+            }
+        }
+    
+        int size = finalIndexByColumn.size();
+        Header nextHeader = new Header(finalIndexByColumn);
+        BinaryOperator<Row> combiner = (lt, rt) -> {
+            Object[] arr = new Object[size];
+            for (Select.Mapper mapper : finalMappers)
+                mapper.accept(lt, rt, arr);
+            return new Row(nextHeader, arr);
+        };
+        Row leftNilRow = new Row(left.header, new Object[left.header.columns.length]);
+        Row rightNilRow = new Row(right.header, new Object[right.header.columns.length]);
         
-        // TODO
-        throw new UnsupportedOperationException();
+        // Step 2: Set up the join operation.
+        
+        // We lazily create an index over the right side (when the first left row arrives), and stream over the left,
+        // matching each left row to right rows via the index, and creating an output row from each left-right row pair.
+        // If this is a left- or full-join, we emit an output row even if a left row matches no right rows, by pairing
+        // the left with an all-null row. If this is a right- or full-join, we keep track of unmatched right rows, and
+        // after the left side is exhausted, emit an output row for each unmatched right row, by pairing the right with
+        // an all-null row.
+        
+        boolean retainUnmatchedRight = type == JoinType.RIGHT || type == JoinType.FULL;
+        Lazy<Index> lazyJoiner = new Lazy<>(() -> {
+            JoinPred.Simplifier simplifier = new JoinPred.Simplifier();
+            finalPred.accept(simplifier);
+            JoinPred simplifiedPred = simplifier.output;
+            
+            JoinPred.IndexCreator indexCreator = new JoinPred.IndexCreator(right, retainUnmatchedRight);
+            simplifiedPred.accept(indexCreator);
+            Index index = indexCreator.output;
+            
+            switch (type) {
+                case INNER: return new InnerJoiner(index, combiner);
+                case LEFT:  return new LeftJoiner( index, combiner, rightNilRow);
+                case RIGHT: return new RightJoiner(index, combiner, leftNilRow);
+                case FULL:  return new FullJoiner( index, combiner, leftNilRow, rightNilRow);
+                default: throw new AssertionError(); // unreachable
+            }
+        });
+        Stream<Row> nextStream = left.stream
+            .flatMap(row -> {
+                // TODO: For Java 16+, optimize by using mapMulti() instead of flatMap().
+                List<Row> buffer = new ArrayList<>();
+                lazyJoiner.get().search(row, buffer::add);
+                return buffer.stream();
+            })
+            .onClose(right::close);
+        
+        if (retainUnmatchedRight) {
+            Stream<Row> s = nextStream;
+            nextStream = StreamSupport.stream(
+                () -> new SwitchingSpliterator<>(new AtomicInteger(0),
+                                                 s.spliterator(),
+                                                 // If we haven't created the index by the time this is called, it means
+                                                 // there was nothing on the left. So entire right side is unmatched.
+                                                 () -> (lazyJoiner.isReleasable() ? lazyJoiner.get().unmatchedRight() : right.stream)
+                                                     .map(row -> combiner.apply(leftNilRow, row))
+                                                     .spliterator()),
+                0, // TODO: Make sure we can still split
+                s.isParallel()
+            ).onClose(s::close);
+        }
+        
+        return new DatasetStream(nextHeader, nextStream);
     }
     
+    interface Index {
+        void search(Row left, Consumer<Row> rx);
+        default Stream<Row> unmatchedRight() { throw new UnsupportedOperationException(); }
+    }
     
-    // TODO: Closing probably doesn't work at all if someone calls stream.limit(N) on the wrapper Stream.
-    //  ie, knowing whether the spliterator finished is insufficient for determining whether the right stream should be closed.
-    //  We probably just need to do a composed close, stupid as it is.
+    private static class InnerJoiner implements Index {
+        final Index index;
+        final BinaryOperator<Row> combiner;
+        
+        InnerJoiner(Index index, BinaryOperator<Row> combiner) {
+            this.index = index;
+            this.combiner = combiner;
+        }
+        
+        @Override
+        public void search(Row left, Consumer<Row> rx) {
+            Consumer<Row> sink = right -> rx.accept(combiner.apply(left, right));
+            index.search(left, sink);
+        }
+    }
     
-    // For left/inner join, use nextSupplier to signal termination, and close the right stream if not already closed.
-    // For right/full join, use nextSupplier to switch to spliterator over remaining from right side.
+    private static class LeftJoiner implements Index {
+        final Index index;
+        final BinaryOperator<Row> combiner;
+        final Row rightNilRow;
+    
+        LeftJoiner(Index index, BinaryOperator<Row> combiner, Row rightNilRow) {
+            this.index = index;
+            this.combiner = combiner;
+            this.rightNilRow = rightNilRow;
+        }
+    
+        @Override
+        public void search(Row left, Consumer<Row> rx) {
+            class Sink implements Consumer<Row> {
+                boolean noneMatch = true;
+                public void accept(Row right) {
+                    noneMatch = false;
+                    rx.accept(combiner.apply(left, right));
+                }
+                public void finish() {
+                    if (noneMatch)
+                        rx.accept(combiner.apply(left, rightNilRow));
+                }
+            }
+            Sink sink = new Sink();
+            index.search(left, sink);
+            sink.finish();
+        }
+    }
+    
+    private static class RightJoiner implements Index {
+        final Index index;
+        final BinaryOperator<Row> combiner;
+        final Row leftNilRow;
+    
+        RightJoiner(Index index,
+                    BinaryOperator<Row> combiner,
+                    Row leftNilRow) {
+            this.index = index;
+            this.combiner = combiner;
+            this.leftNilRow = leftNilRow;
+        }
+        
+        @Override
+        public void search(Row left, Consumer<Row> rx) {
+            Consumer<FlaggedRow> sink = right -> {
+                right.isJoined = true;
+                rx.accept(combiner.apply(left, right.row));
+            };
+            index.search(left, cast(sink));
+        }
+        
+        @Override
+        public Stream<Row> unmatchedRight() {
+            return index.unmatchedRight();
+        }
+    }
+    
+    private static class FullJoiner implements Index {
+        final Index index;
+        final BinaryOperator<Row> combiner;
+        final Row leftNilRow;
+        final Row rightNilRow;
+    
+        FullJoiner(Index index,
+                   BinaryOperator<Row> combiner,
+                   Row leftNilRow,
+                   Row rightNilRow) {
+            this.index = index;
+            this.combiner = combiner;
+            this.leftNilRow = leftNilRow;
+            this.rightNilRow = rightNilRow;
+        }
+    
+        @Override
+        public void search(Row left, Consumer<Row> rx) {
+            class Sink implements Consumer<FlaggedRow> {
+                boolean noneMatch = true;
+                public void accept(FlaggedRow right) {
+                    noneMatch = false;
+                    right.isJoined = true;
+                    rx.accept(combiner.apply(left, right.row));
+                }
+                public void finish() {
+                    if (noneMatch)
+                        rx.accept(combiner.apply(left, rightNilRow));
+                }
+            }
+            Sink sink = new Sink();
+            index.search(left, cast(sink));
+            sink.finish();
+        }
+    
+        @Override
+        public Stream<Row> unmatchedRight() {
+            return index.unmatchedRight();
+        }
+    }
+    
     private static class SwitchingSpliterator<T> implements Spliterator<T> {
         final AtomicInteger splits;
         final Spliterator<T> delegate;
@@ -208,12 +316,12 @@ public class JoinAPI {
     }
     
     // Used for left and inner joins, to defer creating the right side until we know left side is non-empty.
-    private static class LazyBox<T> implements ForkJoinPool.ManagedBlocker {
+    private static class Lazy<T> implements ForkJoinPool.ManagedBlocker {
         private static final Object UNINITIALIZED = new Object();
         private static final VarHandle INSTANCE;
         static {
             try {
-                INSTANCE = MethodHandles.lookup().findVarHandle(LazyBox.class, "instance", Object.class);
+                INSTANCE = MethodHandles.lookup().findVarHandle(Lazy.class, "instance", Object.class);
             } catch (ReflectiveOperationException e) {
                 throw new ExceptionInInitializerError(e);
             }
@@ -227,7 +335,7 @@ public class JoinAPI {
         Supplier<T> supplier;
         Object instance = UNINITIALIZED;
         
-        LazyBox(Supplier<T> supplier) {
+        Lazy(Supplier<T> supplier) {
             this.supplier = supplier;
         }
         
@@ -261,53 +369,22 @@ public class JoinAPI {
                 // Note that managedBlock() does a volatile read before calling isReleasable(),
                 // improving the chance that we see a write from another thread and skip the lock.
                 ForkJoinPool.managedBlock(this);
-            } catch (InterruptedException unreachable) { // our block() does not throw this
+            } catch (InterruptedException unreachable) { // our block() does not throw InterruptedException
                 throw new AssertionError();
             }
             return (T) instance;
         }
     }
     
-    private static class IndexSet {
-        private static final VarHandle AA = MethodHandles.arrayElementVarHandle(long[].class);
+    // Used by right/full joins to keep track of unmatched rows on the right. During the join, rows that are matched are
+    // marked as joined. Remaining un-joined rows are emitted after the join.
+    static class FlaggedRow extends Row {
+        final Row row;
+        boolean isJoined = false;
         
-        final long[] words;
-        
-        // TODO: Optimize? We currently reuse BitSet.stream() for convenience, but that requires initializing all bits
-        //  in our array to 1 (BitSet.stream() looks for set bits, not clear bits), and then copying the array to a
-        //  BitSet at the end.
-    
-        IndexSet(int size) {
-            int wordSize = ((size - 1) >> 6) + 1;
-            words = new long[wordSize];
-            if (wordSize != 0) {
-                IntStream.range(0, wordSize).parallel().forEach(i -> words[i] = -1L); // set all bits
-                words[wordSize - 1] = -1L >>> (64 - size);
-            }
-        }
-        
-        public void remove(int bitIndex) {
-            int wordIndex = bitIndex >> 6;
-            long oldWord = words[wordIndex]; // optimistic plain read
-            long newWord = oldWord & ~(1L << bitIndex);
-            while (newWord != oldWord && oldWord != (oldWord = (long) AA.compareAndExchange(words, wordIndex, oldWord, newWord))) {
-                newWord = oldWord & ~(1L << bitIndex);
-            }
-        }
-        
-        public IntStream stream() {
-            return BitSet.valueOf(words).stream();
-        }
-    }
-    
-    // Used by right/full joins to keep track of unmatched rows on the right. IndexedRows are put into an array at the
-    // beginning of the join, which defines their index. During the join, rows that are matched are "removed" from the
-    // array (conceptually; really their index is removed from a bitset). Remaining rows are emitted after the join.
-    private static class IndexedRow extends Row {
-        int index;
-        
-        IndexedRow(Row row) {
+        FlaggedRow(Row row) {
             super(row.header, row.data);
+            this.row = row;
         }
     }
     
@@ -315,19 +392,21 @@ public class JoinAPI {
         On() {} // Prevent default public constructor
     
         public <T> JoinExpr<T> left(Column<T> column) {
-            return new JoinExpr.LCol<>(left.header.locator(column));
+            Locator<T> locator = left.header.locator(column);
+            return new JoinExpr.RowExpr<>(column, JoinAPI.LEFT, locator::get);
         }
         
         public <T> JoinExpr<T> right(Column<T> column) {
-            return new JoinExpr.RCol<>(right.header.locator(column));
+            Locator<T> locator = right.header.locator(column);
+            return new JoinExpr.RowExpr<>(column, JoinAPI.RIGHT, locator::get);
         }
         
         public <T> JoinExpr<T> left(Function<? super Row, T> mapper) {
-            return new JoinExpr.LExpr<>(mapper);
+            return new JoinExpr.RowExpr<>(null, JoinAPI.LEFT, mapper);
         }
         
         public <T> JoinExpr<T> right(Function<? super Row, T> mapper) {
-            return new JoinExpr.RExpr<>(mapper);
+            return new JoinExpr.RowExpr<>(null, JoinAPI.RIGHT, mapper);
         }
         
         public <T> JoinExpr<T> eval(Supplier<T> supplier) {
@@ -337,7 +416,6 @@ public class JoinAPI {
         public <T> JoinExpr<T> val(T val) {
             return new JoinExpr.Expr<>(() -> val);
         }
-    
     
         public JoinPred eq(JoinExpr<?> left, JoinExpr<?> right) {
             return new JoinPred.Binary(JoinPred.Binary.Op.EQ, left, right);
@@ -526,8 +604,10 @@ public class JoinAPI {
                     arr[index] = mapper.apply(in);
                 }
         
-                void addToParent() {
+                Cols<T> addToParent() {
+                    boolean isParentUnseen = Cols.this.children.isEmpty();
                     Cols.this.children.add(this);
+                    return isParentUnseen ? Cols.this : null;
                 }
             }
         }

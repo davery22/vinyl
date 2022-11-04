@@ -1,4 +1,4 @@
-package da.tasets;
+package vinyl;
 
 import java.util.*;
 import java.util.function.*;

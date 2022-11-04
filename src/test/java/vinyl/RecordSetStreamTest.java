@@ -1,4 +1,4 @@
-package da.tasets;
+package vinyl;
 
 import org.junit.jupiter.api.Test;
 

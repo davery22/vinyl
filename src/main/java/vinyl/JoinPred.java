@@ -1,12 +1,9 @@
-package da.tasets;
+package vinyl;
 
 import java.util.*;
 import java.util.function.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import static da.tasets.Utils.DEFAULT_COMPARATOR;
-import static da.tasets.Utils.cast;
 
 public class JoinPred {
     JoinPred() {} // Prevent default public constructor
@@ -49,25 +46,25 @@ public class JoinPred {
             GT {
                 @Override
                 boolean test(Object a, Object b) {
-                    return DEFAULT_COMPARATOR.compare(a, b) > 0;
+                    return Utils.DEFAULT_COMPARATOR.compare(a, b) > 0;
                 }
             },
             GTE {
                 @Override
                 boolean test(Object a, Object b) {
-                    return DEFAULT_COMPARATOR.compare(a, b) >= 0;
+                    return Utils.DEFAULT_COMPARATOR.compare(a, b) >= 0;
                 }
             },
             LT {
                 @Override
                 boolean test(Object a, Object b) {
-                    return DEFAULT_COMPARATOR.compare(a, b) < 0;
+                    return Utils.DEFAULT_COMPARATOR.compare(a, b) < 0;
                 }
             },
             LTE {
                 @Override
                 boolean test(Object a, Object b) {
-                    return DEFAULT_COMPARATOR.compare(a, b) <= 0;
+                    return Utils.DEFAULT_COMPARATOR.compare(a, b) <= 0;
                 }
             },
             ;
@@ -404,7 +401,7 @@ public class JoinPred {
                         TreeMap<Object, List<Record>> indexedRight;
                         try (RecordStream ds = rStream) {
                             Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
-                            indexedRight = s.collect(Collectors.groupingBy(rightMapper, () -> new TreeMap<>(DEFAULT_COMPARATOR), Collectors.toList()));
+                            indexedRight = s.collect(Collectors.groupingBy(rightMapper, () -> new TreeMap<>(Utils.DEFAULT_COMPARATOR), Collectors.toList()));
                         }
                         abstract class TreeIndex implements JoinAPI.Index {
                             @Override
@@ -560,7 +557,7 @@ public class JoinPred {
         }
         
         private static Stream<Record> unjoinedRecords(Stream<Record> stream) {
-            Stream<JoinAPI.FlaggedRecord> s = cast(stream);
+            Stream<JoinAPI.FlaggedRecord> s = Utils.cast(stream);
             return s.filter(record -> !record.isJoined).map(record -> record.record);
         }
         

@@ -1,4 +1,4 @@
-package da.tasets;
+package vinyl;
 
 import java.util.*;
 import java.util.function.*;
@@ -7,8 +7,8 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-import static da.tasets.Utils.cast;
-import static da.tasets.Utils.tempField;
+import static vinyl.Utils.cast;
+import static vinyl.Utils.tempField;
 
 public class AggregateAPI {
     private final RecordStream stream;

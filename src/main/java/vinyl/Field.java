@@ -1,4 +1,4 @@
-package da.tasets;
+package vinyl;
 
 public final class Field<T> {
     private final String name;

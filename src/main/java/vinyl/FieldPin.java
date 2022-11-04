@@ -1,4 +1,4 @@
-package da.tasets;
+package vinyl;
 
 public final class FieldPin<T> {
     final Field<T> field;

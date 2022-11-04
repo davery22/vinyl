@@ -1,4 +1,4 @@
-package da.tasets;
+package vinyl;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -9,8 +9,6 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.*;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
-
-import static da.tasets.Utils.cast;
 
 public class JoinAPI {
     private final JoinType type;
@@ -206,7 +204,7 @@ public class JoinAPI {
                 right.isJoined = true;
                 rx.accept(combiner.apply(left, right.record));
             };
-            index.search(left, cast(sink));
+            index.search(left, Utils.cast(sink));
         }
         
         @Override
@@ -246,7 +244,7 @@ public class JoinAPI {
                 }
             }
             Sink sink = new Sink();
-            index.search(left, cast(sink));
+            index.search(left, Utils.cast(sink));
             sink.finish();
         }
     

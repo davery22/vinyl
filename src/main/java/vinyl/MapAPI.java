@@ -26,9 +26,9 @@ public class MapAPI<T> {
         config.accept(this);
     
         // Avoid picking up side-effects from bad-actor callbacks.
-        Map<Field<?>, Integer> finalIndexByField = Map.copyOf(indexByField);
+        Map<Field<?>, Integer> finalIndexByField = new HashMap<>(indexByField);
         @SuppressWarnings("unchecked")
-        FieldMapper<T>[] finalMappers = definitions.toArray(FieldMapper[]::new);
+        FieldMapper<T>[] finalMappers = definitions.toArray(new FieldMapper[0]);
         
         // Prep the stream transformation.
         int size = finalMappers.length;
@@ -47,9 +47,9 @@ public class MapAPI<T> {
         config.accept(this);
     
         // Avoid picking up side-effects from bad-actor callbacks.
-        Map<Field<?>, Integer> finalIndexByField = Map.copyOf(indexByField);
+        Map<Field<?>, Integer> finalIndexByField = new HashMap<>(indexByField);
         @SuppressWarnings("unchecked")
-        FieldMapper<T>[] finalMappers = definitions.toArray(FieldMapper[]::new);
+        FieldMapper<T>[] finalMappers = definitions.toArray(new FieldMapper[0]);
         
         int size = definitions.size();
         return Collector.of(
@@ -64,7 +64,7 @@ public class MapAPI<T> {
                 a.addAll(b);
                 return a;
             },
-            a -> new RecordSet(new Header(finalIndexByField), a.toArray(Object[][]::new))
+            a -> new RecordSet(new Header(finalIndexByField), a.toArray(new Object[0][]))
         );
     }
     

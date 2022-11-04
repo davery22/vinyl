@@ -410,7 +410,8 @@ public class JoinPred {
                             }
                         }
                         switch (op) {
-                            case GT, GTE: {
+                            case GT:
+                            case GTE: {
                                 output = new TreeIndex() {
                                     @Override
                                     public void search(Record left, Consumer<Record> rx) {
@@ -423,7 +424,8 @@ public class JoinPred {
                                 };
                                 break;
                             }
-                            case LT, LTE: {
+                            case LT:
+                            case LTE: {
                                 output = new TreeIndex() {
                                     @Override
                                     public void search(Record left, Consumer<Record> rx) {

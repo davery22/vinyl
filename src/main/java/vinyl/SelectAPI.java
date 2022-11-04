@@ -69,7 +69,7 @@ public class SelectAPI {
     
         // Avoid picking up side-effects from bad-actor callbacks.
         // Final mappers will combine ObjectMapper children into their parent.
-        Map<Field<?>, Integer> finalIndexByField = Map.copyOf(indexByField);
+        Map<Field<?>, Integer> finalIndexByField = new HashMap<>(indexByField);
         List<Mapper> finalMappers = new ArrayList<>();
         List<Window> finalWindows = new ArrayList<>();
         
@@ -129,7 +129,7 @@ public class SelectAPI {
             // Copying keyMapperChildren to array also acts as a defensive copy against bad-actor user code.
             // There is no need to do the same for windowFnChildren (used in Window::accept), as they can only be added
             // by trusted code.
-            Function<Record, List<?>> classifier = classifierFor(window.keyMapperChildren.toArray(Window.KeyMapper[]::new), window.keyCount);
+            Function<Record, List<?>> classifier = classifierFor(window.keyMapperChildren.toArray(new Window.KeyMapper[0]), window.keyCount);
             Collector<LinkedRecord, ?, Map<List<?>, List<LinkedRecord>>> collector = Collectors.groupingBy(classifier, Collectors.toList());
             Stream<LinkedRecord> prev = curr;
             curr = StreamSupport.stream(
@@ -292,11 +292,11 @@ public class SelectAPI {
             windowFnChildren.forEach(child -> child.accept(records));
         }
         
-        private abstract static class KeyMapper {
+        private abstract class KeyMapper {
             abstract void accept(Record record, Object[] arr);
         }
         
-        private abstract static class WindowFunction {
+        private abstract class WindowFunction {
             abstract void accept(List<LinkedRecord> records);
         }
         

@@ -78,20 +78,28 @@ public class RecordStream implements Stream<Record> {
         return new AggregateAPI(this).accept(config);
     }
     
-    public RecordStream join(RecordStream right, Consumer<JoinAPI> config) {
-        return new JoinAPI(JoinAPI.JoinType.INNER, this, right).accept(config);
+    public RecordStream join(RecordStream right,
+                             Function<JoinAPI.On, JoinPred> onConfig,
+                             Consumer<JoinAPI.Select> selectConfig) {
+        return new JoinAPI(JoinAPI.JoinType.INNER, this, right).accept(onConfig, selectConfig);
     }
     
-    public RecordStream leftJoin(RecordStream right, Consumer<JoinAPI> config) {
-        return new JoinAPI(JoinAPI.JoinType.LEFT, this, right).accept(config);
+    public RecordStream leftJoin(RecordStream right,
+                                 Function<JoinAPI.On, JoinPred> onConfig,
+                                 Consumer<JoinAPI.Select> selectConfig) {
+        return new JoinAPI(JoinAPI.JoinType.LEFT, this, right).accept(onConfig, selectConfig);
     }
     
-    public RecordStream rightJoin(RecordStream right, Consumer<JoinAPI> config) {
-        return new JoinAPI(JoinAPI.JoinType.RIGHT, this, right).accept(config);
+    public RecordStream rightJoin(RecordStream right,
+                                  Function<JoinAPI.On, JoinPred> onConfig,
+                                  Consumer<JoinAPI.Select> selectConfig) {
+        return new JoinAPI(JoinAPI.JoinType.RIGHT, this, right).accept(onConfig, selectConfig);
     }
     
-    public RecordStream fullJoin(RecordStream right, Consumer<JoinAPI> config) {
-        return new JoinAPI(JoinAPI.JoinType.FULL, this, right).accept(config);
+    public RecordStream fullJoin(RecordStream right,
+                                 Function<JoinAPI.On, JoinPred> onConfig,
+                                 Consumer<JoinAPI.Select> selectConfig) {
+        return new JoinAPI(JoinAPI.JoinType.FULL, this, right).accept(onConfig, selectConfig);
     }
     
     // --- old ---

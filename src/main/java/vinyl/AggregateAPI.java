@@ -154,7 +154,7 @@ public class AggregateAPI {
         
         // Prep the stream transformation.
         int size = indexByField.size();
-        Header nextHeader = new Header(Map.copyOf(indexByField));
+        Header nextHeader = new Header(new HashMap<>(indexByField));
         Collector<Record, ?, List<?>> downstream = collectorFor(finalCollectors, aggIndexes.size());
         Stream<Record> nextStream;
     

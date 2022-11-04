@@ -14,8 +14,6 @@ public class JoinAPI {
     private final JoinType type;
     private final RecordStream left;
     private final RecordStream right;
-    private JoinPred pred = null;
-    private Select select = null;
     
     enum JoinType { INNER, LEFT, RIGHT, FULL }
     
@@ -31,31 +29,20 @@ public class JoinAPI {
         this.right = right;
     }
     
-    public JoinAPI on(Function<On, JoinPred> config) {
-        pred = config.apply(new On());
-        return this;
-    }
-    
-    public JoinAPI andSelect(Consumer<Select> config) {
-        config.accept(select = new Select());
-        return this;
-    }
-    
-    RecordStream accept(Consumer<JoinAPI> config) {
-        config.accept(this);
-    
-        // Avoid picking up side-effects from bad-actor callbacks.
-        
-        JoinPred finalPred = pred != null ? pred : new On().all(); // cross-join
-        Select finalSelect = select != null ? select : new Select().lall().rall(); // merge fields
+    RecordStream accept(Function<JoinAPI.On, JoinPred> onConfig,
+                        Consumer<JoinAPI.Select> selectConfig) {
+        JoinPred pred = onConfig.apply(new On());
+        Select select = new Select();
+        selectConfig.accept(select);
         
         // Step 1: Set up the new header, and the combiner (that produces a new record from a left and a right record).
-        
+    
+        // Avoid picking up side-effects from bad-actor callbacks.
         // Final mappers will combine ObjectMapper children into their parent.
-        Map<Field<?>, Integer> finalIndexByField = Map.copyOf(finalSelect.indexByField);
+        Map<Field<?>, Integer> finalIndexByField = new HashMap<>(select.indexByField);
         List<Select.Mapper> finalMappers = new ArrayList<>();
     
-        for (Object definition : finalSelect.definitions) {
+        for (Object definition : select.definitions) {
             if (definition instanceof Select.RecordMapper)
                 finalMappers.add((Select.RecordMapper) definition);
             else {
@@ -90,7 +77,7 @@ public class JoinAPI {
         boolean retainUnmatchedRight = type == JoinType.RIGHT || type == JoinType.FULL;
         Lazy<Index> lazyJoiner = new Lazy<>(() -> {
             JoinPred.Simplifier simplifier = new JoinPred.Simplifier();
-            finalPred.accept(simplifier);
+            pred.accept(simplifier);
             JoinPred simplifiedPred = simplifier.output;
             
             JoinPred.IndexCreator indexCreator = new JoinPred.IndexCreator(right, retainUnmatchedRight);
@@ -548,11 +535,11 @@ public class JoinAPI {
             return this;
         }
         
-        private abstract static class Mapper {
+        private abstract class Mapper {
             abstract void accept(Record left, Record right, Object[] arr);
         }
     
-        private static class RecordMapper extends Mapper {
+        private class RecordMapper extends Mapper {
             final int index;
             final BiFunction<? super Record, ? super Record, ?> mapper;
         

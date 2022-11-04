@@ -20,24 +20,24 @@ public class RecordSetStreamTest {
     
     @Test
     void test() {
-        RecordStream data$ = RecordStream.aux(IntStream.range(0, 100)).boxed()
-            .mapToRecord($->$
+        RecordStream stream = RecordStream.aux(IntStream.range(0, 100)).boxed()
+            .mapToRecord(select -> select
                 .field(FIELD_A, i -> i + 1)
                 .field(FIELD_B, i -> i + 2)
                 .field(FIELD_D, i -> i + 3)
             )
-            .select($->$
+            .select(select -> select
                 .allExcept(FIELD_D)
                 .field(FIELD_C, FIELD_D::get)
             );
-        FieldPin<Integer> pinB = data$.header().pin(FIELD_B);
-        FieldPin<Integer> pinC = data$.header().pin(FIELD_C);
-        RecordSet data = data$
-            .aggregate($->$
+        FieldPin<Integer> pinB = stream.header().pin(FIELD_B);
+        FieldPin<Integer> pinC = stream.header().pin(FIELD_C);
+        RecordSet data = stream
+            .aggregate(aggregate -> aggregate
                 .keyField(FIELD_A)
                 .key(o -> o.get(pinB) + o.get(pinC))
                 .aggField(FIELD_C, summingInt(FIELD_A::get))
-                .aggs(summarizingInt(FIELD_B::get), $$->$$
+                .aggs(summarizingInt(FIELD_B::get), aggs -> aggs
                     .aggField(FIELD_D, IntSummaryStatistics::getMax)
                     .aggField(FIELD_E, IntSummaryStatistics::getMin)
                     .aggField(FIELD_F, IntSummaryStatistics::getSum)
@@ -46,39 +46,21 @@ public class RecordSetStreamTest {
             .toRecordSet();
         
         System.out.println(data);
-        
-//        Dataset selfJoined = data.stream()
-//            .join(data.stream(), $$->$$
-//                .on($-> $.eq($.left(FIELD_A), $.right(FIELD_B)))
-//                .on($->
-//                    $.not(
-//                        $.any(
-//                            $.eq($.val(3), $.val("")),
-//                            $.gte($.left(FIELD_A), $.right(FIELD_D))
-//                        )
-//                    )
-//                )
-//                .andSelect($->$
-//                    .lField(FIELD_A)
-//                    .rallExcept(FIELD_A)
-//                )
-//            )
-//            .toDataset();
     }
     
     @Test
     void testWindowFunction1() {
         RecordSet data = RecordStream.aux(IntStream.range(0, 100)).boxed()
-            .mapToRecord($ -> $.field(FIELD_A, i -> i*2))
-            .select($$ -> $$
+            .mapToRecord(select -> select.field(FIELD_A, i -> i*2))
+            .select(select -> select
                 .field(FIELD_A)
-                .window($->$
+                .window(window -> window
                     .field(FIELD_B, Comparator.comparingInt(FIELD_A::get).reversed(), (os, rx) -> IntStream.range(0, os.size()).forEach(rx::accept))
                     .field(FIELD_C, (os, rx) -> rx.accept(os.stream().mapToInt(FIELD_A::get).sum()))
                 )
-                .window($->$
+                .window(window -> window
                     .key(o -> o.get(FIELD_A) / 10)
-                    .field(FIELD_D, (os, rx) -> rx.accept(os.stream().mapToInt(FIELD_A::get).max().orElseThrow()))
+                    .field(FIELD_D, (os, rx) -> rx.accept(os.stream().mapToInt(FIELD_A::get).max().getAsInt()))
                 )
             )
             .parallel()
@@ -90,33 +72,28 @@ public class RecordSetStreamTest {
     @Test
     void testJoin1() {
         RecordSet data = RecordStream.aux(IntStream.range(0, 1000)).boxed()
-            .mapToRecord($ -> $.field(FIELD_A, i -> i))
+            .mapToRecord(select -> select.field(FIELD_A, i -> i))
             .toRecordSet();
         
         RecordSet joined = data.stream()
-            .select($->$
+            .select(select -> select
                 .field(FIELD_A)
                 .field(FIELD_S, o -> "Hello, " + o.get(FIELD_A))
             )
             .filter(o -> o.get(FIELD_A) > 20)
             .fullJoin(data.stream()
-                          .select($->$
+                          .select(select -> select
                               .field(FIELD_A)
                               .field(FIELD_S, o -> "Goodbye, " + o.get(FIELD_A))
                           )
                           .filter(o -> o.get(FIELD_A) < 980),
-                      join -> join
-                          .on(on -> on.eq(on.left(FIELD_A), on.right(FIELD_A)))
-//                          .on($->$.match((l, r) -> Objects.equals(l.get(FIELD_A), r.get(FIELD_A))))
-                          .andSelect($->$
-                              .field(FIELD_A, (l, r) -> l.get(FIELD_A) != null ? l.get(FIELD_A) : r.get(FIELD_A))
-                              .field(FIELD_S, (l, r) -> l.get(FIELD_S) + " and " + r.get(FIELD_S))
-                          )
+                      on -> on.eq(on.left(FIELD_A), on.right(FIELD_A)),
+                      select -> select
+                          .field(FIELD_A, (l, r) -> l.get(FIELD_A) != null ? l.get(FIELD_A) : r.get(FIELD_A))
+                          .field(FIELD_S, (l, r) -> l.get(FIELD_S) + " and " + r.get(FIELD_S))
             )
             .toRecordSet();
         
         System.out.println(joined);
-//        if (joined.stream().count() == 0)
-//            throw new AssertionError();
     }
 }

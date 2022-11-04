@@ -7,14 +7,14 @@ import java.util.stream.Collector;
 import java.util.stream.Stream;
 
 public class MapAPI<T> {
-    private final Map<Column<?>, Integer> indexByColumn = new HashMap<>();
-    private final List<ColumnMapper<T>> definitions = new ArrayList<>();
+    private final Map<Field<?>, Integer> indexByField = new HashMap<>();
+    private final List<FieldMapper<T>> definitions = new ArrayList<>();
     
     MapAPI() {} // Prevent default public constructor
     
-    public <U> MapAPI<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
-        int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-        ColumnMapper<T> def = new ColumnMapper<>(index, mapper);
+    public <U> MapAPI<T> field(Field<U> field, Function<? super T, ? extends U> mapper) {
+        int index = indexByField.computeIfAbsent(field, k -> definitions.size());
+        FieldMapper<T> def = new FieldMapper<>(index, mapper);
         if (index == definitions.size())
             definitions.add(def);
         else
@@ -22,41 +22,41 @@ public class MapAPI<T> {
         return this;
     }
     
-    DatasetStream accept(DatasetStream.Aux<T> stream, Consumer<MapAPI<T>> config) {
+    RecordStream accept(RecordStream.Aux<T> stream, Consumer<MapAPI<T>> config) {
         config.accept(this);
     
         // Avoid picking up side-effects from bad-actor callbacks.
-        Map<Column<?>, Integer> finalIndexByColumn = Map.copyOf(indexByColumn);
+        Map<Field<?>, Integer> finalIndexByField = Map.copyOf(indexByField);
         @SuppressWarnings("unchecked")
-        ColumnMapper<T>[] finalMappers = definitions.toArray(ColumnMapper[]::new);
+        FieldMapper<T>[] finalMappers = definitions.toArray(FieldMapper[]::new);
         
-        // Prep the row-by-row transformation.
+        // Prep the stream transformation.
         int size = finalMappers.length;
-        Header nextHeader = new Header(finalIndexByColumn);
-        Stream<Row> nextStream = stream.stream.map(it -> {
+        Header nextHeader = new Header(finalIndexByField);
+        Stream<Record> nextStream = stream.stream.map(it -> {
             Object[] arr = new Object[size];
-            for (ColumnMapper<T> mapper : finalMappers)
+            for (FieldMapper<T> mapper : finalMappers)
                 mapper.accept(it, arr);
-            return new Row(nextHeader, arr);
+            return new Record(nextHeader, arr);
         });
     
-        return new DatasetStream(nextHeader, nextStream);
+        return new RecordStream(nextHeader, nextStream);
     }
     
-    Collector<T, ?, Dataset> collector(Consumer<MapAPI<T>> config) {
+    Collector<T, ?, RecordSet> collector(Consumer<MapAPI<T>> config) {
         config.accept(this);
     
         // Avoid picking up side-effects from bad-actor callbacks.
-        Map<Column<?>, Integer> finalIndexByColumn = Map.copyOf(indexByColumn);
+        Map<Field<?>, Integer> finalIndexByField = Map.copyOf(indexByField);
         @SuppressWarnings("unchecked")
-        ColumnMapper<T>[] finalMappers = definitions.toArray(ColumnMapper[]::new);
+        FieldMapper<T>[] finalMappers = definitions.toArray(FieldMapper[]::new);
         
         int size = definitions.size();
         return Collector.of(
             () -> new ArrayList<Object[]>(),
             (a, t) -> {
                 Object[] arr = new Object[size];
-                for (ColumnMapper<T> mapper : finalMappers)
+                for (FieldMapper<T> mapper : finalMappers)
                     mapper.accept(t, arr);
                 a.add(arr);
             },
@@ -64,15 +64,15 @@ public class MapAPI<T> {
                 a.addAll(b);
                 return a;
             },
-            a -> new Dataset(new Header(finalIndexByColumn), a.toArray(Object[][]::new))
+            a -> new RecordSet(new Header(finalIndexByField), a.toArray(Object[][]::new))
         );
     }
     
-    private static class ColumnMapper<T> {
+    private static class FieldMapper<T> {
         final int index;
         final Function<? super T, ?> mapper;
         
-        ColumnMapper(int index, Function<? super T, ?> mapper) {
+        FieldMapper(int index, Function<? super T, ?> mapper) {
             this.index = index;
             this.mapper = mapper;
         }

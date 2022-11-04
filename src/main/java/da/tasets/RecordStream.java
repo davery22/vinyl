@@ -4,11 +4,11 @@ import java.util.*;
 import java.util.function.*;
 import java.util.stream.*;
 
-public class DatasetStream implements Stream<Row> {
+public class RecordStream implements Stream<Record> {
     final Header header;
-    final Stream<Row> stream;
+    final Stream<Record> stream;
     
-    DatasetStream(Header header, Stream<Row> stream) {
+    RecordStream(Header header, Stream<Record> stream) {
         this.header = header;
         this.stream = stream;
     }
@@ -19,16 +19,16 @@ public class DatasetStream implements Stream<Row> {
         return header;
     }
     
-    public static DatasetStream concat(DatasetStream a, DatasetStream b) {
+    public static RecordStream concat(RecordStream a, RecordStream b) {
         if (!a.header.equals(b.header))
             throw new IllegalArgumentException("Header mismatch");
-        return new DatasetStream(a.header, Stream.concat(a.stream, b.stream));
+        return new RecordStream(a.header, Stream.concat(a.stream, b.stream));
     }
     
     @SuppressWarnings("unchecked")
     public static <T> Aux<T> aux(Stream<T> stream) {
-        if (stream instanceof DatasetStream)
-            return (Aux<T>) ((DatasetStream) stream).aux();
+        if (stream instanceof RecordStream)
+            return (Aux<T>) ((RecordStream) stream).aux();
         if (stream instanceof Aux)
             return (Aux<T>) stream;
         // Chain a no-op, so that the stream will throw if re-used after this call.
@@ -60,142 +60,142 @@ public class DatasetStream implements Stream<Row> {
         return new AuxDouble(s);
     }
     
-    public Dataset toDataset() {
-        return new Dataset(header, stream.map(row -> row.data).toArray(Object[][]::new));
+    public RecordSet toRecordSet() {
+        return new RecordSet(header, stream.map(record -> record.values).toArray(Object[][]::new));
     }
     
-    public Aux<Row> aux() {
+    public Aux<Record> aux() {
         // Chain a no-op, so that the stream will throw if re-used after this call.
-        Stream<Row> s = stream.peek(it -> {});
+        Stream<Record> s = stream.peek(it -> {});
         return new Aux<>(s);
     }
     
-    public DatasetStream select(Consumer<SelectAPI> config) {
+    public RecordStream select(Consumer<SelectAPI> config) {
         return new SelectAPI(this).accept(config);
     }
     
-    public DatasetStream aggregate(Consumer<AggregateAPI> config) {
+    public RecordStream aggregate(Consumer<AggregateAPI> config) {
         return new AggregateAPI(this).accept(config);
     }
     
-    public DatasetStream join(DatasetStream right, Consumer<JoinAPI> config) {
+    public RecordStream join(RecordStream right, Consumer<JoinAPI> config) {
         return new JoinAPI(JoinAPI.JoinType.INNER, this, right).accept(config);
     }
     
-    public DatasetStream leftJoin(DatasetStream right, Consumer<JoinAPI> config) {
+    public RecordStream leftJoin(RecordStream right, Consumer<JoinAPI> config) {
         return new JoinAPI(JoinAPI.JoinType.LEFT, this, right).accept(config);
     }
     
-    public DatasetStream rightJoin(DatasetStream right, Consumer<JoinAPI> config) {
+    public RecordStream rightJoin(RecordStream right, Consumer<JoinAPI> config) {
         return new JoinAPI(JoinAPI.JoinType.RIGHT, this, right).accept(config);
     }
     
-    public DatasetStream fullJoin(DatasetStream right, Consumer<JoinAPI> config) {
+    public RecordStream fullJoin(RecordStream right, Consumer<JoinAPI> config) {
         return new JoinAPI(JoinAPI.JoinType.FULL, this, right).accept(config);
     }
     
     // --- old ---
     
     @Override
-    public DatasetStream filter(Predicate<? super Row> predicate) {
-        return new DatasetStream(header, stream.filter(predicate));
+    public RecordStream filter(Predicate<? super Record> predicate) {
+        return new RecordStream(header, stream.filter(predicate));
     }
     
     @Override
-    public <R> Aux<R> map(Function<? super Row, ? extends R> mapper) {
+    public <R> Aux<R> map(Function<? super Record, ? extends R> mapper) {
         return new Aux<>(stream.map(mapper));
     }
     
     @Override
-    public AuxInt mapToInt(ToIntFunction<? super Row> mapper) {
+    public AuxInt mapToInt(ToIntFunction<? super Record> mapper) {
         return new AuxInt(stream.mapToInt(mapper));
     }
     
     @Override
-    public AuxLong mapToLong(ToLongFunction<? super Row> mapper) {
+    public AuxLong mapToLong(ToLongFunction<? super Record> mapper) {
         return new AuxLong(stream.mapToLong(mapper));
     }
     
     @Override
-    public AuxDouble mapToDouble(ToDoubleFunction<? super Row> mapper) {
+    public AuxDouble mapToDouble(ToDoubleFunction<? super Record> mapper) {
         return new AuxDouble(stream.mapToDouble(mapper));
     }
     
     @Override
-    public <R> Aux<R> flatMap(Function<? super Row, ? extends Stream<? extends R>> mapper) {
+    public <R> Aux<R> flatMap(Function<? super Record, ? extends Stream<? extends R>> mapper) {
         return new Aux<>(stream.flatMap(mapper));
     }
     
     @Override
-    public AuxInt flatMapToInt(Function<? super Row, ? extends IntStream> mapper) {
+    public AuxInt flatMapToInt(Function<? super Record, ? extends IntStream> mapper) {
         return new AuxInt(stream.flatMapToInt(mapper));
     }
     
     @Override
-    public AuxLong flatMapToLong(Function<? super Row, ? extends LongStream> mapper) {
+    public AuxLong flatMapToLong(Function<? super Record, ? extends LongStream> mapper) {
         return new AuxLong(stream.flatMapToLong(mapper));
     }
     
     @Override
-    public AuxDouble flatMapToDouble(Function<? super Row, ? extends DoubleStream> mapper) {
+    public AuxDouble flatMapToDouble(Function<? super Record, ? extends DoubleStream> mapper) {
         return new AuxDouble(stream.flatMapToDouble(mapper));
     }
     
     @Override
-    public DatasetStream distinct() {
+    public RecordStream distinct() {
         class HeadlessEq {
-            final Row row;
+            final Record record;
             
-            HeadlessEq(Row row) {
-                this.row = row;
+            HeadlessEq(Record record) {
+                this.record = record;
             }
             
             @Override
             public boolean equals(Object o) {
-                return Arrays.equals(row.data, ((HeadlessEq) o).row.data);
+                return Arrays.equals(record.values, ((HeadlessEq) o).record.values);
             }
             
             @Override
             public int hashCode() {
-                return Arrays.hashCode(row.data);
+                return Arrays.hashCode(record.values);
             }
         }
         
-        return new DatasetStream(header, stream.map(HeadlessEq::new).distinct().map(h -> h.row));
+        return new RecordStream(header, stream.map(HeadlessEq::new).distinct().map(h -> h.record));
     }
     
     @Override
-    public DatasetStream sorted() {
-        return new DatasetStream(header, stream.sorted(UnsafeUtils.HEADLESS_ROW_COMPARATOR));
+    public RecordStream sorted() {
+        return new RecordStream(header, stream.sorted(Utils.HEADLESS_RECORD_COMPARATOR));
     }
     
     @Override
-    public DatasetStream sorted(Comparator<? super Row> comparator) {
-        return new DatasetStream(header, stream.sorted(comparator));
+    public RecordStream sorted(Comparator<? super Record> comparator) {
+        return new RecordStream(header, stream.sorted(comparator));
     }
     
     @Override
-    public DatasetStream peek(Consumer<? super Row> action) {
-        return new DatasetStream(header, stream.peek(action));
+    public RecordStream peek(Consumer<? super Record> action) {
+        return new RecordStream(header, stream.peek(action));
     }
     
     @Override
-    public DatasetStream limit(long maxSize) {
-        return new DatasetStream(header, stream.limit(maxSize));
+    public RecordStream limit(long maxSize) {
+        return new RecordStream(header, stream.limit(maxSize));
     }
     
     @Override
-    public DatasetStream skip(long n) {
-        return new DatasetStream(header, stream.skip(n));
+    public RecordStream skip(long n) {
+        return new RecordStream(header, stream.skip(n));
     }
     
     @Override
-    public void forEach(Consumer<? super Row> action) {
+    public void forEach(Consumer<? super Record> action) {
         stream.forEach(action);
     }
     
     @Override
-    public void forEachOrdered(Consumer<? super Row> action) {
+    public void forEachOrdered(Consumer<? super Record> action) {
         stream.forEachOrdered(action);
     }
     
@@ -210,37 +210,37 @@ public class DatasetStream implements Stream<Row> {
     }
     
     @Override
-    public Row reduce(Row identity, BinaryOperator<Row> accumulator) {
+    public Record reduce(Record identity, BinaryOperator<Record> accumulator) {
         return stream.reduce(identity, accumulator);
     }
     
     @Override
-    public Optional<Row> reduce(BinaryOperator<Row> accumulator) {
+    public Optional<Record> reduce(BinaryOperator<Record> accumulator) {
         return stream.reduce(accumulator);
     }
     
     @Override
-    public <U> U reduce(U identity, BiFunction<U, ? super Row, U> accumulator, BinaryOperator<U> combiner) {
+    public <U> U reduce(U identity, BiFunction<U, ? super Record, U> accumulator, BinaryOperator<U> combiner) {
         return stream.reduce(identity, accumulator, combiner);
     }
     
     @Override
-    public <R> R collect(Supplier<R> supplier, BiConsumer<R, ? super Row> accumulator, BiConsumer<R, R> combiner) {
+    public <R> R collect(Supplier<R> supplier, BiConsumer<R, ? super Record> accumulator, BiConsumer<R, R> combiner) {
         return stream.collect(supplier, accumulator, combiner);
     }
     
     @Override
-    public <R, A> R collect(Collector<? super Row, A, R> collector) {
+    public <R, A> R collect(Collector<? super Record, A, R> collector) {
         return stream.collect(collector);
     }
     
     @Override
-    public Optional<Row> min(Comparator<? super Row> comparator) {
+    public Optional<Record> min(Comparator<? super Record> comparator) {
         return stream.min(comparator);
     }
     
     @Override
-    public Optional<Row> max(Comparator<? super Row> comparator) {
+    public Optional<Record> max(Comparator<? super Record> comparator) {
         return stream.max(comparator);
     }
     
@@ -250,37 +250,37 @@ public class DatasetStream implements Stream<Row> {
     }
     
     @Override
-    public boolean anyMatch(Predicate<? super Row> predicate) {
+    public boolean anyMatch(Predicate<? super Record> predicate) {
         return stream.anyMatch(predicate);
     }
     
     @Override
-    public boolean allMatch(Predicate<? super Row> predicate) {
+    public boolean allMatch(Predicate<? super Record> predicate) {
         return stream.allMatch(predicate);
     }
     
     @Override
-    public boolean noneMatch(Predicate<? super Row> predicate) {
+    public boolean noneMatch(Predicate<? super Record> predicate) {
         return stream.noneMatch(predicate);
     }
     
     @Override
-    public Optional<Row> findFirst() {
+    public Optional<Record> findFirst() {
         return stream.findFirst();
     }
     
     @Override
-    public Optional<Row> findAny() {
+    public Optional<Record> findAny() {
         return stream.findAny();
     }
     
     @Override
-    public Iterator<Row> iterator() {
+    public Iterator<Record> iterator() {
         return stream.iterator();
     }
     
     @Override
-    public Spliterator<Row> spliterator() {
+    public Spliterator<Record> spliterator() {
         return stream.spliterator();
     }
     
@@ -290,27 +290,27 @@ public class DatasetStream implements Stream<Row> {
     }
     
     @Override
-    public DatasetStream sequential() {
-        Stream<Row> s = stream.sequential();
-        return s == stream ? this : new DatasetStream(header, s);
+    public RecordStream sequential() {
+        Stream<Record> s = stream.sequential();
+        return s == stream ? this : new RecordStream(header, s);
     }
     
     @Override
-    public DatasetStream parallel() {
-        Stream<Row> s = stream.parallel();
-        return s == stream ? this : new DatasetStream(header, s);
+    public RecordStream parallel() {
+        Stream<Record> s = stream.parallel();
+        return s == stream ? this : new RecordStream(header, s);
     }
     
     @Override
-    public DatasetStream unordered() {
-        Stream<Row> s = stream.unordered();
-        return s == stream ? this : new DatasetStream(header, s);
+    public RecordStream unordered() {
+        Stream<Record> s = stream.unordered();
+        return s == stream ? this : new RecordStream(header, s);
     }
     
     @Override
-    public DatasetStream onClose(Runnable closeHandler) {
-        Stream<Row> s = stream.onClose(closeHandler);
-        return s == stream ? this : new DatasetStream(header, s);
+    public RecordStream onClose(Runnable closeHandler) {
+        Stream<Record> s = stream.onClose(closeHandler);
+        return s == stream ? this : new RecordStream(header, s);
     }
     
     @Override
@@ -327,19 +327,8 @@ public class DatasetStream implements Stream<Row> {
         
         // --- new ---
         
-        public DatasetStream mapToDataset(Consumer<MapAPI<T>> config) {
+        public RecordStream mapToRecord(Consumer<MapAPI<T>> config) {
             return new MapAPI<T>().accept(this, config);
-        }
-        
-        public <R, A> Aux<R> lazyCollect(Collector<? super T, A, R> collector) {
-            // Chain a no-op, so that the stream will throw if re-used after this call.
-            Stream<T> s = stream.peek(it -> {});
-            Stream<R> next = StreamSupport.stream(
-                () -> Collections.singleton(s.collect(collector)).spliterator(),
-                Spliterator.SIZED | Spliterator.SUBSIZED | Spliterator.IMMUTABLE | Spliterator.DISTINCT | Spliterator.ORDERED,
-                s.isParallel()
-            ).onClose(s::close);
-            return new Aux<>(next);
         }
         
         // --- old ---

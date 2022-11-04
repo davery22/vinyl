@@ -10,12 +10,12 @@ import java.util.function.*;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-import static da.tasets.UnsafeUtils.cast;
+import static da.tasets.Utils.cast;
 
 public class JoinAPI {
     private final JoinType type;
-    private final DatasetStream left;
-    private final DatasetStream right;
+    private final RecordStream left;
+    private final RecordStream right;
     private JoinPred pred = null;
     private Select select = null;
     
@@ -27,7 +27,7 @@ public class JoinAPI {
     static int LEFT = 2;
     static int BOTH = 3; // LEFT | RIGHT
     
-    JoinAPI(JoinType type, DatasetStream left, DatasetStream right) {
+    JoinAPI(JoinType type, RecordStream left, RecordStream right) {
         this.type = type;
         this.left = left;
         this.right = right;
@@ -43,51 +43,51 @@ public class JoinAPI {
         return this;
     }
     
-    DatasetStream accept(Consumer<JoinAPI> config) {
+    RecordStream accept(Consumer<JoinAPI> config) {
         config.accept(this);
     
         // Avoid picking up side-effects from bad-actor callbacks.
         
         JoinPred finalPred = pred != null ? pred : new On().all(); // cross-join
-        Select finalSelect = select != null ? select : new Select().lall().rall(); // merge columns
+        Select finalSelect = select != null ? select : new Select().lall().rall(); // merge fields
         
-        // Step 1: Set up the new header, and the combiner (that produces a new row from a left and a right row).
+        // Step 1: Set up the new header, and the combiner (that produces a new record from a left and a right record).
         
-        // Final mappers will combine ObjMapper children into their parent.
-        Map<Column<?>, Integer> finalIndexByColumn = Map.copyOf(finalSelect.indexByColumn);
+        // Final mappers will combine ObjectMapper children into their parent.
+        Map<Field<?>, Integer> finalIndexByField = Map.copyOf(finalSelect.indexByField);
         List<Select.Mapper> finalMappers = new ArrayList<>();
     
         for (Object definition : finalSelect.definitions) {
-            if (definition instanceof Select.RowMapper)
-                finalMappers.add((Select.RowMapper) definition);
+            if (definition instanceof Select.RecordMapper)
+                finalMappers.add((Select.RecordMapper) definition);
             else {
-                assert definition instanceof Select.Cols.ObjMapper;
-                Select.Cols<?>.ObjMapper def = (Select.Cols<?>.ObjMapper) definition;
-                Select.Cols<?> parent = def.addToParent();
+                assert definition instanceof Select.Fields.ObjectMapper;
+                Select.Fields<?>.ObjectMapper def = (Select.Fields<?>.ObjectMapper) definition;
+                Select.Fields<?> parent = def.addToParent();
                 if (parent != null)
                     finalMappers.add(parent);
             }
         }
     
-        int size = finalIndexByColumn.size();
-        Header nextHeader = new Header(finalIndexByColumn);
-        BinaryOperator<Row> combiner = (lt, rt) -> {
+        int size = finalIndexByField.size();
+        Header nextHeader = new Header(finalIndexByField);
+        BinaryOperator<Record> combiner = (lt, rt) -> {
             Object[] arr = new Object[size];
             for (Select.Mapper mapper : finalMappers)
                 mapper.accept(lt, rt, arr);
-            return new Row(nextHeader, arr);
+            return new Record(nextHeader, arr);
         };
-        Row leftNilRow = new Row(left.header, new Object[left.header.columns.length]);
-        Row rightNilRow = new Row(right.header, new Object[right.header.columns.length]);
+        Record leftNilRecord = new Record(left.header, new Object[left.header.fields.length]);
+        Record rightNilRecord = new Record(right.header, new Object[right.header.fields.length]);
         
         // Step 2: Set up the join operation.
         
-        // We lazily create an index over the right side (when the first left row arrives), and stream over the left,
-        // matching each left row to right rows via the index, and creating an output row from each left-right row pair.
-        // If this is a left- or full-join, we emit an output row even if a left row matches no right rows, by pairing
-        // the left with an all-null row. If this is a right- or full-join, we keep track of unmatched right rows, and
-        // after the left side is exhausted, emit an output row for each unmatched right row, by pairing the right with
-        // an all-null row.
+        // We lazily create an index over the right side (when the first left record arrives), and stream over the left,
+        // matching each left record to right records via the index, and creating an output record from each left-right
+        // record pair. If this is a left- or full-join, we emit an output record even if a left record matches no right
+        // records, by pairing the left with an all-null record. If this is a right- or full-join, we keep track of
+        // unmatched right records, and after the left side is exhausted, emit an output record for each unmatched right
+        // record, by pairing the right with an all-null record.
         
         boolean retainUnmatchedRight = type == JoinType.RIGHT || type == JoinType.FULL;
         Lazy<Index> lazyJoiner = new Lazy<>(() -> {
@@ -101,82 +101,84 @@ public class JoinAPI {
             
             switch (type) {
                 case INNER: return new InnerJoiner(index, combiner);
-                case LEFT:  return new LeftJoiner( index, combiner, rightNilRow);
-                case RIGHT: return new RightJoiner(index, combiner, leftNilRow);
-                case FULL:  return new FullJoiner( index, combiner, leftNilRow, rightNilRow);
+                case LEFT:  return new LeftJoiner(index, combiner, rightNilRecord);
+                case RIGHT: return new RightJoiner(index, combiner, leftNilRecord);
+                case FULL:  return new FullJoiner(index, combiner, leftNilRecord, rightNilRecord);
                 default: throw new AssertionError(); // unreachable
             }
         });
-        Stream<Row> nextStream = left.stream
-            .flatMap(row -> {
+        Stream<Record> nextStream = left.stream
+            .flatMap(record -> {
                 // TODO: For Java 16+, optimize by using mapMulti() instead of flatMap().
-                List<Row> buffer = new ArrayList<>();
-                lazyJoiner.get().search(row, buffer::add);
-                return buffer.stream();
+                // For now, Stream.Builder uses SpinedBuffer internally, so eliminates copying if capacity needs increased.
+                // And even the SpinedBuffer is avoided if only one element is added.
+                Stream.Builder<Record> buffer = Stream.builder();
+                lazyJoiner.get().search(record, buffer);
+                return buffer.build();
             })
             .onClose(right::close);
         
         if (retainUnmatchedRight) {
-            Stream<Row> s = nextStream;
+            Stream<Record> s = nextStream;
             nextStream = StreamSupport.stream(
                 () -> new SwitchingSpliterator<>(new AtomicInteger(0),
                                                  s.spliterator(),
                                                  // If we haven't created the index by the time this is called, it means
                                                  // there was nothing on the left. So entire right side is unmatched.
                                                  () -> (lazyJoiner.isReleasable() ? lazyJoiner.get().unmatchedRight() : right.stream)
-                                                     .map(row -> combiner.apply(leftNilRow, row))
+                                                     .map(record -> combiner.apply(leftNilRecord, record))
                                                      .spliterator()),
                 0, // TODO: Make sure we can still split
                 s.isParallel()
             ).onClose(s::close);
         }
         
-        return new DatasetStream(nextHeader, nextStream);
+        return new RecordStream(nextHeader, nextStream);
     }
     
     interface Index {
-        void search(Row left, Consumer<Row> rx);
-        default Stream<Row> unmatchedRight() { throw new UnsupportedOperationException(); }
+        void search(Record left, Consumer<Record> rx);
+        default Stream<Record> unmatchedRight() { throw new UnsupportedOperationException(); }
     }
     
     private static class InnerJoiner implements Index {
         final Index index;
-        final BinaryOperator<Row> combiner;
+        final BinaryOperator<Record> combiner;
         
-        InnerJoiner(Index index, BinaryOperator<Row> combiner) {
+        InnerJoiner(Index index, BinaryOperator<Record> combiner) {
             this.index = index;
             this.combiner = combiner;
         }
         
         @Override
-        public void search(Row left, Consumer<Row> rx) {
-            Consumer<Row> sink = right -> rx.accept(combiner.apply(left, right));
+        public void search(Record left, Consumer<Record> rx) {
+            Consumer<Record> sink = right -> rx.accept(combiner.apply(left, right));
             index.search(left, sink);
         }
     }
     
     private static class LeftJoiner implements Index {
         final Index index;
-        final BinaryOperator<Row> combiner;
-        final Row rightNilRow;
+        final BinaryOperator<Record> combiner;
+        final Record rightNilRecord;
     
-        LeftJoiner(Index index, BinaryOperator<Row> combiner, Row rightNilRow) {
+        LeftJoiner(Index index, BinaryOperator<Record> combiner, Record rightNilRecord) {
             this.index = index;
             this.combiner = combiner;
-            this.rightNilRow = rightNilRow;
+            this.rightNilRecord = rightNilRecord;
         }
     
         @Override
-        public void search(Row left, Consumer<Row> rx) {
-            class Sink implements Consumer<Row> {
+        public void search(Record left, Consumer<Record> rx) {
+            class Sink implements Consumer<Record> {
                 boolean noneMatch = true;
-                public void accept(Row right) {
+                public void accept(Record right) {
                     noneMatch = false;
                     rx.accept(combiner.apply(left, right));
                 }
                 public void finish() {
                     if (noneMatch)
-                        rx.accept(combiner.apply(left, rightNilRow));
+                        rx.accept(combiner.apply(left, rightNilRecord));
                 }
             }
             Sink sink = new Sink();
@@ -187,60 +189,60 @@ public class JoinAPI {
     
     private static class RightJoiner implements Index {
         final Index index;
-        final BinaryOperator<Row> combiner;
-        final Row leftNilRow;
+        final BinaryOperator<Record> combiner;
+        final Record leftNilRecord;
     
         RightJoiner(Index index,
-                    BinaryOperator<Row> combiner,
-                    Row leftNilRow) {
+                    BinaryOperator<Record> combiner,
+                    Record leftNilRecord) {
             this.index = index;
             this.combiner = combiner;
-            this.leftNilRow = leftNilRow;
+            this.leftNilRecord = leftNilRecord;
         }
         
         @Override
-        public void search(Row left, Consumer<Row> rx) {
-            Consumer<FlaggedRow> sink = right -> {
+        public void search(Record left, Consumer<Record> rx) {
+            Consumer<FlaggedRecord> sink = right -> {
                 right.isJoined = true;
-                rx.accept(combiner.apply(left, right.row));
+                rx.accept(combiner.apply(left, right.record));
             };
             index.search(left, cast(sink));
         }
         
         @Override
-        public Stream<Row> unmatchedRight() {
+        public Stream<Record> unmatchedRight() {
             return index.unmatchedRight();
         }
     }
     
     private static class FullJoiner implements Index {
         final Index index;
-        final BinaryOperator<Row> combiner;
-        final Row leftNilRow;
-        final Row rightNilRow;
+        final BinaryOperator<Record> combiner;
+        final Record leftNilRecord;
+        final Record rightNilRecord;
     
         FullJoiner(Index index,
-                   BinaryOperator<Row> combiner,
-                   Row leftNilRow,
-                   Row rightNilRow) {
+                   BinaryOperator<Record> combiner,
+                   Record leftNilRecord,
+                   Record rightNilRecord) {
             this.index = index;
             this.combiner = combiner;
-            this.leftNilRow = leftNilRow;
-            this.rightNilRow = rightNilRow;
+            this.leftNilRecord = leftNilRecord;
+            this.rightNilRecord = rightNilRecord;
         }
     
         @Override
-        public void search(Row left, Consumer<Row> rx) {
-            class Sink implements Consumer<FlaggedRow> {
+        public void search(Record left, Consumer<Record> rx) {
+            class Sink implements Consumer<FlaggedRecord> {
                 boolean noneMatch = true;
-                public void accept(FlaggedRow right) {
+                public void accept(FlaggedRecord right) {
                     noneMatch = false;
                     right.isJoined = true;
-                    rx.accept(combiner.apply(left, right.row));
+                    rx.accept(combiner.apply(left, right.record));
                 }
                 public void finish() {
                     if (noneMatch)
-                        rx.accept(combiner.apply(left, rightNilRow));
+                        rx.accept(combiner.apply(left, rightNilRecord));
                 }
             }
             Sink sink = new Sink();
@@ -249,7 +251,7 @@ public class JoinAPI {
         }
     
         @Override
-        public Stream<Row> unmatchedRight() {
+        public Stream<Record> unmatchedRight() {
             return index.unmatchedRight();
         }
     }
@@ -376,37 +378,37 @@ public class JoinAPI {
         }
     }
     
-    // Used by right/full joins to keep track of unmatched rows on the right. During the join, rows that are matched are
-    // marked as joined. Remaining un-joined rows are emitted after the join.
-    static class FlaggedRow extends Row {
-        final Row row;
+    // Used by right/full joins to keep track of unmatched records on the right. During the join, records that are
+    // matched are marked as joined. Remaining un-joined records are emitted after the join.
+    static class FlaggedRecord extends Record {
+        final Record record;
         boolean isJoined = false;
         
-        FlaggedRow(Row row) {
-            super(row.header, row.data);
-            this.row = row;
+        FlaggedRecord(Record record) {
+            super(record.header, record.values);
+            this.record = record;
         }
     }
     
     public class On {
         On() {} // Prevent default public constructor
     
-        public <T> JoinExpr<T> left(Column<T> column) {
-            Locator<T> locator = left.header.locator(column);
-            return new JoinExpr.RowExpr<>(column, JoinAPI.LEFT, locator::get);
+        public <T> JoinExpr<T> left(Field<T> field) {
+            FieldPin<T> pin = left.header.pin(field);
+            return new JoinExpr.RecordExpr<>(field, JoinAPI.LEFT, pin::get);
         }
         
-        public <T> JoinExpr<T> right(Column<T> column) {
-            Locator<T> locator = right.header.locator(column);
-            return new JoinExpr.RowExpr<>(column, JoinAPI.RIGHT, locator::get);
+        public <T> JoinExpr<T> right(Field<T> field) {
+            FieldPin<T> pin = right.header.pin(field);
+            return new JoinExpr.RecordExpr<>(field, JoinAPI.RIGHT, pin::get);
         }
         
-        public <T> JoinExpr<T> left(Function<? super Row, T> mapper) {
-            return new JoinExpr.RowExpr<>(null, JoinAPI.LEFT, mapper);
+        public <T> JoinExpr<T> left(Function<? super Record, T> mapper) {
+            return new JoinExpr.RecordExpr<>(null, JoinAPI.LEFT, mapper);
         }
         
-        public <T> JoinExpr<T> right(Function<? super Row, T> mapper) {
-            return new JoinExpr.RowExpr<>(null, JoinAPI.RIGHT, mapper);
+        public <T> JoinExpr<T> right(Function<? super Record, T> mapper) {
+            return new JoinExpr.RecordExpr<>(null, JoinAPI.RIGHT, mapper);
         }
         
         public <T> JoinExpr<T> eval(Supplier<T> supplier) {
@@ -457,15 +459,15 @@ public class JoinAPI {
             return new JoinPred.AnyAll(false, List.of(predicates));
         }
         
-        public JoinPred lmatch(Predicate<? super Row> predicate) {
+        public JoinPred lmatch(Predicate<? super Record> predicate) {
             return new JoinPred.SideMatch(true, predicate);
         }
         
-        public JoinPred rmatch(Predicate<? super Row> predicate) {
+        public JoinPred rmatch(Predicate<? super Record> predicate) {
             return new JoinPred.SideMatch(false, predicate);
         }
         
-        public JoinPred match(BiPredicate<? super Row, ? super Row> predicate) {
+        public JoinPred match(BiPredicate<? super Record, ? super Record> predicate) {
             return new JoinPred.Match(predicate);
         }
     
@@ -476,54 +478,54 @@ public class JoinAPI {
     }
     
     public class Select {
-        private final Map<Column<?>, Integer> indexByColumn = new HashMap<>();
+        private final Map<Field<?>, Integer> indexByField = new HashMap<>();
         private final List<Object> definitions = new ArrayList<>();
         
         Select() {} // Prevent default public constructor
         
         public Select lall() {
-            for (Column<?> column : left.header.columns)
-                lcol(column);
+            for (Field<?> field : left.header.fields)
+                lField(field);
             return this;
         }
     
         public Select rall() {
-            for (Column<?> column : right.header.columns)
-                rcol(column);
+            for (Field<?> field : right.header.fields)
+                rField(field);
             return this;
         }
     
-        public Select lallExcept(Column<?>... excluded) {
-            Set<Column<?>> excludedSet = Set.of(excluded);
-            for (Column<?> column : left.header.columns)
-                if (!excludedSet.contains(column))
-                    lcol(column);
+        public Select lallExcept(Field<?>... excluded) {
+            Set<Field<?>> excludedSet = Set.of(excluded);
+            for (Field<?> field : left.header.fields)
+                if (!excludedSet.contains(field))
+                    lField(field);
             return this;
         }
     
-        public Select rallExcept(Column<?>... excluded) {
-            Set<Column<?>> excludedSet = Set.of(excluded);
-            for (Column<?> column : right.header.columns)
-                if (!excludedSet.contains(column))
-                    rcol(column);
+        public Select rallExcept(Field<?>... excluded) {
+            Set<Field<?>> excludedSet = Set.of(excluded);
+            for (Field<?> field : right.header.fields)
+                if (!excludedSet.contains(field))
+                    rField(field);
             return this;
         }
     
         @SuppressWarnings({"unchecked", "rawtypes"})
-        public Select lcol(Column<?> column) {
-            Locator locator = new Locator(column, left.header.indexOf(column));
-            return col((Column) column, (lt, rt) -> lt.get(locator));
+        public Select lField(Field<?> field) {
+            FieldPin pin = new FieldPin(field, left.header.indexOf(field));
+            return field((Field) field, (lt, rt) -> lt.get(pin));
         }
     
         @SuppressWarnings({"unchecked", "rawtypes"})
-        public Select rcol(Column<?> column) {
-            Locator locator = new Locator(column, right.header.indexOf(column));
-            return col((Column) column, (lt, rt) -> rt.get(locator));
+        public Select rField(Field<?> field) {
+            FieldPin pin = new FieldPin(field, right.header.indexOf(field));
+            return field((Field) field, (lt, rt) -> rt.get(pin));
         }
         
-        public <T> Select col(Column<T> column, BiFunction<? super Row, ? super Row, ? extends T> mapper) {
-            int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-            RowMapper def = new RowMapper(index, mapper);
+        public <T> Select field(Field<T> field, BiFunction<? super Record, ? super Record, ? extends T> mapper) {
+            int index = indexByField.computeIfAbsent(field, k -> definitions.size());
+            RecordMapper def = new RecordMapper(index, mapper);
             if (index == definitions.size())
                 definitions.add(def);
             else
@@ -531,53 +533,53 @@ public class JoinAPI {
             return this;
         }
         
-        public Select lcols(Column<?>... columns) {
-            for (Column<?> column : columns)
-                lcol(column);
+        public Select lFields(Field<?>... fields) {
+            for (Field<?> field : fields)
+                lField(field);
             return this;
         }
         
-        public Select rcols(Column<?>... columns) {
-            for (Column<?> column : columns)
-                rcol(column);
+        public Select rFields(Field<?>... fields) {
+            for (Field<?> field : fields)
+                rField(field);
             return this;
         }
         
-        public <T> Select cols(BiFunction<? super Row, ? super Row, ? extends T> mapper, Consumer<Cols<T>> config) {
-            config.accept(new Cols<>(mapper));
+        public <T> Select fields(BiFunction<? super Record, ? super Record, ? extends T> mapper, Consumer<Fields<T>> config) {
+            config.accept(new Fields<>(mapper));
             return this;
         }
         
         private abstract static class Mapper {
-            abstract void accept(Row left, Row right, Object[] arr);
+            abstract void accept(Record left, Record right, Object[] arr);
         }
     
-        private static class RowMapper extends Mapper {
+        private static class RecordMapper extends Mapper {
             final int index;
-            final BiFunction<? super Row, ? super Row, ?> mapper;
+            final BiFunction<? super Record, ? super Record, ?> mapper;
         
-            RowMapper(int index, BiFunction<? super Row, ? super Row, ?> mapper) {
+            RecordMapper(int index, BiFunction<? super Record, ? super Record, ?> mapper) {
                 this.index = index;
                 this.mapper = mapper;
             }
         
             @Override
-            void accept(Row left, Row right, Object[] arr) {
+            void accept(Record left, Record right, Object[] arr) {
                 arr[index] = mapper.apply(left, right);
             }
         }
         
-        public class Cols<T> extends Mapper {
-            final BiFunction<? super Row, ? super Row, ? extends T> mapper;
-            final List<ObjMapper> children = new ArrayList<>();
+        public class Fields<T> extends Mapper {
+            final BiFunction<? super Record, ? super Record, ? extends T> mapper;
+            final List<ObjectMapper> children = new ArrayList<>();
     
-            Cols(BiFunction<? super Row, ? super Row, ? extends T> mapper) {
+            Fields(BiFunction<? super Record, ? super Record, ? extends T> mapper) {
                 this.mapper = mapper;
             }
     
-            public <U> Cols<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
-                int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-                ObjMapper def = new ObjMapper(index, mapper);
+            public <U> Fields<T> field(Field<U> field, Function<? super T, ? extends U> mapper) {
+                int index = indexByField.computeIfAbsent(field, k -> definitions.size());
+                ObjectMapper def = new ObjectMapper(index, mapper);
                 if (index == definitions.size())
                     definitions.add(def);
                 else
@@ -586,16 +588,16 @@ public class JoinAPI {
             }
     
             @Override
-            void accept(Row left, Row right, Object[] arr) {
+            void accept(Record left, Record right, Object[] arr) {
                 T obj = mapper.apply(left, right);
                 children.forEach(child -> child.accept(obj, arr));
             }
     
-            private class ObjMapper {
+            private class ObjectMapper {
                 final int index;
                 final Function<? super T, ?> mapper;
         
-                ObjMapper(int index, Function<? super T, ?> mapper) {
+                ObjectMapper(int index, Function<? super T, ?> mapper) {
                     this.index = index;
                     this.mapper = mapper;
                 }
@@ -604,10 +606,10 @@ public class JoinAPI {
                     arr[index] = mapper.apply(in);
                 }
         
-                Cols<T> addToParent() {
-                    boolean isParentUnseen = Cols.this.children.isEmpty();
-                    Cols.this.children.add(this);
-                    return isParentUnseen ? Cols.this : null;
+                Fields<T> addToParent() {
+                    boolean isParentUnseen = Fields.this.children.isEmpty();
+                    Fields.this.children.add(this);
+                    return isParentUnseen ? Fields.this : null;
                 }
             }
         }

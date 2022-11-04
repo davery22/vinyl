@@ -7,47 +7,45 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-import static da.tasets.UnsafeUtils.cast;
-import static da.tasets.UnsafeUtils.tempColumn;
+import static da.tasets.Utils.cast;
+import static da.tasets.Utils.tempField;
 
 public class AggregateAPI {
-    private final DatasetStream stream;
-    private final Map<Column<?>, Integer> indexByColumn = new HashMap<>();
+    private final RecordStream stream;
+    private final Map<Field<?>, Integer> indexByField = new HashMap<>();
     private final List<Object> definitions = new ArrayList<>();
     
-    AggregateAPI(DatasetStream stream) {
+    AggregateAPI(RecordStream stream) {
         this.stream = stream;
     }
     
     @SuppressWarnings({"unchecked", "rawtypes"})
-    public AggregateAPI key(Column<?> column) {
-        Locator locator = new Locator(column, stream.header.indexOf(column));
-        return keyHelper(true, tempColumn(), row -> row.get(locator));
+    public AggregateAPI key(Field<?> field) {
+        FieldPin pin = new FieldPin(field, stream.header.indexOf(field));
+        return keyHelper(true, tempField(), record -> record.get(pin));
     }
     
-    public AggregateAPI key(Function<? super Row, ?> mapper) {
-        return keyHelper(true, tempColumn(), mapper);
+    public AggregateAPI key(Function<? super Record, ?> mapper) {
+        return keyHelper(true, tempField(), mapper);
     }
     
-    // TODO: Add ability to overwrite temporary keys?
-    
-    public AggregateAPI keyCol(Column<?> column) {
-        return keyHelper(false, column);
+    public AggregateAPI keyField(Field<?> field) {
+        return keyHelper(false, field);
     }
     
-    public <T> AggregateAPI keyCol(Column<T> column, Function<? super Row, ? extends T> mapper) {
-        return keyHelper(false, column, mapper);
+    public <T> AggregateAPI keyField(Field<T> field, Function<? super Record, ? extends T> mapper) {
+        return keyHelper(false, field, mapper);
     }
     
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private AggregateAPI keyHelper(boolean isTemp, Column<?> column) {
-        Locator locator = new Locator(column, stream.header.indexOf(column));
-        return keyHelper(isTemp, column, row -> row.get(locator));
+    private AggregateAPI keyHelper(boolean isTemp, Field<?> field) {
+        FieldPin pin = new FieldPin(field, stream.header.indexOf(field));
+        return keyHelper(isTemp, field, record -> record.get(pin));
     }
     
-    private <T> AggregateAPI keyHelper(boolean isTemp, Column<?> column, Function<? super Row, ? extends T> mapper) {
-        int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-        KeyRowMapper def = new KeyRowMapper(isTemp, column, mapper);
+    private <T> AggregateAPI keyHelper(boolean isTemp, Field<?> field, Function<? super Record, ? extends T> mapper) {
+        int index = indexByField.computeIfAbsent(field, k -> definitions.size());
+        KeyRecordMapper def = new KeyRecordMapper(isTemp, field, mapper);
         if (index == definitions.size())
             definitions.add(def);
         else
@@ -55,9 +53,9 @@ public class AggregateAPI {
         return this;
     }
     
-    public <T, A> AggregateAPI aggCol(Column<T> column, Collector<? super Row, A, ? extends T> collector) {
-        int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-        AggRowCollector def = new AggRowCollector(column, collector);
+    public <T, A> AggregateAPI aggField(Field<T> field, Collector<? super Record, A, ? extends T> collector) {
+        int index = indexByField.computeIfAbsent(field, k -> definitions.size());
+        AggRecordCollector def = new AggRecordCollector(field, collector);
         if (index == definitions.size())
             definitions.add(def);
         else
@@ -65,40 +63,40 @@ public class AggregateAPI {
         return this;
     }
     
-    public AggregateAPI keyCols(Column<?>... columns) {
-        for (Column<?> column : columns)
-            keyCol(column);
+    public AggregateAPI keyFields(Field<?>... fields) {
+        for (Field<?> field : fields)
+            keyField(field);
         return this;
     }
     
-    public AggregateAPI keys(Column<?>... columns) {
-        for (Column<?> column : columns)
-            key(column);
+    public AggregateAPI keys(Field<?>... fields) {
+        for (Field<?> field : fields)
+            key(field);
         return this;
     }
     
-    public <T> AggregateAPI keys(Function<? super Row, ? extends T> mapper, Consumer<Keys<T>> config) {
+    public <T> AggregateAPI keys(Function<? super Record, ? extends T> mapper, Consumer<Keys<T>> config) {
         config.accept(new Keys<>(mapper));
         return this;
     }
     
-    public <T> AggregateAPI aggs(Collector<? super Row, ?, ? extends T> collector, Consumer<Aggs<T>> config) {
+    public <T> AggregateAPI aggs(Collector<? super Record, ?, ? extends T> collector, Consumer<Aggs<T>> config) {
         config.accept(new Aggs<>(collector));
         return this;
     }
     
-    DatasetStream accept(Consumer<AggregateAPI> config) {
+    RecordStream accept(Consumer<AggregateAPI> config) {
         config.accept(this);
     
         // General idea:
-        //  - combine key functions into one classifier that creates a List (with hash/equals) of key values for a row
-        //  - combine agg functions into one collector that creates a List of agg values for a row
+        //  - combine key functions into one classifier that creates a List (with hash/equals) of key values for a record
+        //  - combine agg functions into one collector that creates a List of agg values for a record
         //  - create a groupingBy collector from classifier and downstream collector
-        //  - stream Map entries, create row from key values and agg values
+        //  - stream Map entries, create record from key values and agg values
         //
         // Handling of temp keys:
-        //  Remove temp keys from final indexByColumn, and adjust other indexes around that.
-        //  Mark temp keys so that we can check and skip adding them to the final rows.
+        //  Remove temp keys from final indexByField, and adjust other indexes around that.
+        //  Mark temp keys so that we can check and skip adding them to the final records.
         
         List<Integer> keyIndexes = new ArrayList<>();
         List<Integer> aggIndexes = new ArrayList<>();
@@ -110,26 +108,26 @@ public class AggregateAPI {
         // i: original index, j: adjusted index (after removing temps)
         for (int i = 0, j = 0; i < definitions.size(); i++) {
             Object definition = definitions.get(i);
-            if (definition instanceof KeyRowMapper) {
-                KeyRowMapper def = (KeyRowMapper) definition;
+            if (definition instanceof KeyRecordMapper) {
+                KeyRecordMapper def = (KeyRecordMapper) definition;
                 finalMappers.add(def);
                 def.localIndex = keyIndexes.size();
                 if (def.isTemp) {
                     hasTempKeys = true;
                     keyIndexes.add(-1); // Mark for skipping
-                    indexByColumn.remove(def.column);
+                    indexByField.remove(def.field);
                 } else {
                     keyIndexes.add(j);
-                    indexByColumn.put(def.column, j++);
+                    indexByField.put(def.field, j++);
                 }
-            } else if (definition instanceof AggRowCollector) {
-                AggRowCollector def = (AggRowCollector) definition;
+            } else if (definition instanceof AggRecordCollector) {
+                AggRecordCollector def = (AggRecordCollector) definition;
                 finalCollectors.add(def);
                 def.localIndex = aggIndexes.size();
                 aggIndexes.add(j);
-                indexByColumn.put(def.column, j++);
-            } else if (definition instanceof Keys.KeyObjMapper) {
-                Keys<?>.KeyObjMapper def = (Keys<?>.KeyObjMapper) definition;
+                indexByField.put(def.field, j++);
+            } else if (definition instanceof Keys.KeyObjectMapper) {
+                Keys<?>.KeyObjectMapper def = (Keys<?>.KeyObjectMapper) definition;
                 def.addToParent();
                 if (seenParents.add(def.parent()))
                     finalMappers.add(def.parent());
@@ -137,28 +135,28 @@ public class AggregateAPI {
                 if (def.isTemp) {
                     hasTempKeys = true;
                     keyIndexes.add(-1); // Mark for skipping
-                    indexByColumn.remove(def.column);
+                    indexByField.remove(def.field);
                 } else {
                     keyIndexes.add(j);
-                    indexByColumn.put(def.column, j++);
+                    indexByField.put(def.field, j++);
                 }
             } else {
-                assert definition instanceof Aggs.AggObjMapper;
-                Aggs<?>.AggObjMapper def = (Aggs<?>.AggObjMapper) definition;
+                assert definition instanceof Aggs.AggObjectMapper;
+                Aggs<?>.AggObjectMapper def = (Aggs<?>.AggObjectMapper) definition;
                 def.addToParent();
                 if (seenParents.add(def.parent()))
                     finalCollectors.add(def.parent());
                 def.localIndex = aggIndexes.size();
                 aggIndexes.add(j);
-                indexByColumn.put(def.column, j++);
+                indexByField.put(def.field, j++);
             }
         }
         
-        // Prep the row-by-row transformation.
-        int size = indexByColumn.size();
-        Header nextHeader = new Header(Map.copyOf(indexByColumn));
-        Collector<Row, ?, List<?>> downstream = collectorFor(finalCollectors, aggIndexes.size());
-        Stream<Row> nextStream;
+        // Prep the stream transformation.
+        int size = indexByField.size();
+        Header nextHeader = new Header(Map.copyOf(indexByField));
+        Collector<Record, ?, List<?>> downstream = collectorFor(finalCollectors, aggIndexes.size());
+        Stream<Record> nextStream;
     
         // Optimization: Inline and simplify lazyCollect() + mapToDataset(), since this is trusted code.
         // Optimization: Skip grouping if there are no keys.
@@ -168,11 +166,11 @@ public class AggregateAPI {
                     Object[] arr = new Object[size];
                     for (int i = 0; i < aggIndexes.size(); i++)
                         arr[aggIndexes.get(i)] = aggs.get(i);
-                    return new Row(nextHeader, arr);
+                    return new Record(nextHeader, arr);
                 });
         } else {
-            Function<Row, List<?>> classifier = classifierFor(finalMappers, keyIndexes.size());
-            Collector<Row, ?, Map<List<?>, List<?>>> collector = Collectors.groupingBy(classifier, downstream);
+            Function<Record, List<?>> classifier = classifierFor(finalMappers, keyIndexes.size());
+            Collector<Record, ?, Map<List<?>, List<?>>> collector = Collectors.groupingBy(classifier, downstream);
             nextStream = lazyCollectingStream(collector)
                 .flatMap(map -> map.entrySet().stream())
                 .map(
@@ -185,7 +183,7 @@ public class AggregateAPI {
                                 arr[keyIndexes.get(i)] = keys.get(i);
                         for (int i = 0; i < aggIndexes.size(); i++)
                             arr[aggIndexes.get(i)] = aggs.get(i);
-                        return new Row(nextHeader, arr);
+                        return new Record(nextHeader, arr);
                     } : e -> {
                         Object[] arr = new Object[size];
                         List<?> keys = e.getKey();
@@ -194,15 +192,15 @@ public class AggregateAPI {
                             arr[keyIndexes.get(i)] = keys.get(i);
                         for (int i = 0; i < aggIndexes.size(); i++)
                             arr[aggIndexes.get(i)] = aggs.get(i);
-                        return new Row(nextHeader, arr);
+                        return new Record(nextHeader, arr);
                     });
         }
         
-        return new DatasetStream(nextHeader, nextStream);
+        return new RecordStream(nextHeader, nextStream);
     }
     
-    private <T> Stream<T> lazyCollectingStream(Collector<Row, ?, T> collector) {
-        Stream<Row> s = stream.stream.peek(it -> {});
+    private <T> Stream<T> lazyCollectingStream(Collector<Record, ?, T> collector) {
+        Stream<Record> s = stream.stream.peek(it -> {});
         return StreamSupport.stream(
             () -> Collections.singleton(s.collect(collector)).spliterator(),
             Spliterator.SIZED | Spliterator.SUBSIZED | Spliterator.IMMUTABLE | Spliterator.DISTINCT | Spliterator.ORDERED,
@@ -210,16 +208,16 @@ public class AggregateAPI {
         ).onClose(s::close);
     }
     
-    private Function<Row, List<?>> classifierFor(List<Mapper> mappers, int keysSize) {
-        return row -> {
+    private Function<Record, List<?>> classifierFor(List<Mapper> mappers, int keysSize) {
+        return record -> {
             Object[] arr = new Object[keysSize];
             for (Mapper mapper : mappers)
-                mapper.accept(row, arr);
+                mapper.accept(record, arr);
             return Arrays.asList(arr); // convert to List for equals/hashCode
         };
     }
     
-    private Collector<Row, ?, List<?>> collectorFor(List<CollectorBox> collectorBoxes, int aggsSize) {
+    private Collector<Record, ?, List<?>> collectorFor(List<CollectorBox> collectorBoxes, int aggsSize) {
         int size = collectorBoxes.size();
         Supplier<?>[] suppliers = new Supplier[size];
         BiConsumer<?, ?>[] accumulators = new BiConsumer[size];
@@ -262,44 +260,44 @@ public class AggregateAPI {
     }
     
     private abstract static class Mapper {
-        abstract void accept(Row row, Object[] arr);
+        abstract void accept(Record record, Object[] arr);
     }
     
     private abstract static class CollectorBox {
-        abstract Collector<? super Row, ?, ?> collector();
+        abstract Collector<? super Record, ?, ?> collector();
         abstract void accept(Object obj, Object[] arr);
     }
     
-    private static class KeyRowMapper extends Mapper {
+    private static class KeyRecordMapper extends Mapper {
         final boolean isTemp;
-        final Column<?> column;
-        final Function<? super Row, ?> mapper;
+        final Field<?> field;
+        final Function<? super Record, ?> mapper;
         int localIndex;
     
-        KeyRowMapper(boolean isTemp, Column<?> column, Function<? super Row, ?> mapper) {
+        KeyRecordMapper(boolean isTemp, Field<?> field, Function<? super Record, ?> mapper) {
             this.isTemp = isTemp;
-            this.column = column;
+            this.field = field;
             this.mapper = mapper;
         }
         
         @Override
-        void accept(Row row, Object[] arr) {
-            arr[localIndex] = mapper.apply(row);
+        void accept(Record record, Object[] arr) {
+            arr[localIndex] = mapper.apply(record);
         }
     }
     
-    private static class AggRowCollector extends CollectorBox {
-        final Column<?> column;
-        final Collector<? super Row, ?, ?> collector;
+    private static class AggRecordCollector extends CollectorBox {
+        final Field<?> field;
+        final Collector<? super Record, ?, ?> collector;
         int localIndex;
     
-        AggRowCollector(Column<?> column, Collector<? super Row, ?, ?> collector) {
-            this.column = column;
+        AggRecordCollector(Field<?> field, Collector<? super Record, ?, ?> collector) {
+            this.field = field;
             this.collector = collector;
         }
         
         @Override
-        Collector<? super Row, ?, ?> collector() {
+        Collector<? super Record, ?, ?> collector() {
             return collector;
         }
         
@@ -310,28 +308,28 @@ public class AggregateAPI {
     }
     
     public class Keys<T> extends Mapper {
-        final Function<? super Row, ? extends T> mapper;
-        final List<KeyObjMapper> children = new ArrayList<>();
+        final Function<? super Record, ? extends T> mapper;
+        final List<KeyObjectMapper> children = new ArrayList<>();
         
-        Keys(Function<? super Row, ? extends T> mapper) {
+        Keys(Function<? super Record, ? extends T> mapper) {
             this.mapper = mapper;
         }
     
         public Keys<T> key(Function<? super T, ?> mapper) {
-            return keyHelper(true, tempColumn(), mapper);
+            return keyHelper(true, tempField(), mapper);
         }
         
-        public Keys<T> key(Column<?> column, Function<? super T, ?> mapper) {
-            return keyHelper(true, column, mapper);
+        public Keys<T> key(Field<?> field, Function<? super T, ?> mapper) {
+            return keyHelper(true, field, mapper);
         }
         
-        public <U> Keys<T> keyCol(Column<U> column, Function<? super T, ? extends U> mapper) {
-            return keyHelper(false, column, mapper);
+        public <U> Keys<T> keyField(Field<U> field, Function<? super T, ? extends U> mapper) {
+            return keyHelper(false, field, mapper);
         }
         
-        private <U> Keys<T> keyHelper(boolean isTemp, Column<?> column, Function<? super T, ? extends U> mapper) {
-            int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-            KeyObjMapper def = new KeyObjMapper(isTemp, column, mapper);
+        private <U> Keys<T> keyHelper(boolean isTemp, Field<?> field, Function<? super T, ? extends U> mapper) {
+            int index = indexByField.computeIfAbsent(field, k -> definitions.size());
+            KeyObjectMapper def = new KeyObjectMapper(isTemp, field, mapper);
             if (index == definitions.size())
                 definitions.add(def);
             else
@@ -340,20 +338,20 @@ public class AggregateAPI {
         }
         
         @Override
-        void accept(Row row, Object[] arr) {
-            T obj = mapper.apply(row);
+        void accept(Record record, Object[] arr) {
+            T obj = mapper.apply(record);
             children.forEach(child -> child.accept(obj, arr));
         }
         
-        private class KeyObjMapper {
+        private class KeyObjectMapper {
             final boolean isTemp;
-            final Column<?> column;
+            final Field<?> field;
             final Function<? super T, ?> mapper;
             int localIndex;
         
-            KeyObjMapper(boolean isTemp, Column<?> column, Function<? super T, ?> mapper) {
+            KeyObjectMapper(boolean isTemp, Field<?> field, Function<? super T, ?> mapper) {
                 this.isTemp = isTemp;
-                this.column = column;
+                this.field = field;
                 this.mapper = mapper;
             }
             
@@ -372,16 +370,16 @@ public class AggregateAPI {
     }
     
     public class Aggs<T> extends CollectorBox {
-        final Collector<? super Row, ?, ? extends T> collector;
-        final List<AggObjMapper> children = new ArrayList<>();
+        final Collector<? super Record, ?, ? extends T> collector;
+        final List<AggObjectMapper> children = new ArrayList<>();
         
-        Aggs(Collector<? super Row, ?, ? extends T> collector) {
+        Aggs(Collector<? super Record, ?, ? extends T> collector) {
             this.collector = collector;
         }
         
-        public <U> Aggs<T> aggCol(Column<U> column, Function<? super T, ? extends U> mapper) {
-            int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-            AggObjMapper def = new AggObjMapper(column, mapper);
+        public <U> Aggs<T> aggField(Field<U> field, Function<? super T, ? extends U> mapper) {
+            int index = indexByField.computeIfAbsent(field, k -> definitions.size());
+            AggObjectMapper def = new AggObjectMapper(field, mapper);
             if (index == definitions.size())
                 definitions.add(def);
             else
@@ -390,7 +388,7 @@ public class AggregateAPI {
         }
         
         @Override
-        Collector<? super Row, ?, ?> collector() {
+        Collector<? super Record, ?, ?> collector() {
             return collector;
         }
         
@@ -401,13 +399,13 @@ public class AggregateAPI {
             children.forEach(child -> child.accept(in, arr));
         }
         
-        private class AggObjMapper {
-            final Column<?> column;
+        private class AggObjectMapper {
+            final Field<?> field;
             final Function<? super T, ?> mapper;
             int localIndex;
     
-            AggObjMapper(Column<?> column, Function<? super T, ?> mapper) {
-                this.column = column;
+            AggObjectMapper(Field<?> field, Function<? super T, ?> mapper) {
+                this.field = field;
                 this.mapper = mapper;
             }
             

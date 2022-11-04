@@ -5,14 +5,14 @@ import java.util.function.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static da.tasets.UnsafeUtils.DEFAULT_COMPARATOR;
-import static da.tasets.UnsafeUtils.cast;
+import static da.tasets.Utils.DEFAULT_COMPARATOR;
+import static da.tasets.Utils.cast;
 
 public class JoinPred {
     JoinPred() {} // Prevent default public constructor
     
     // TODO: Temporary kludge used by AnyAll
-    BiPredicate<? super Row, ? super Row> toPredicate() {
+    BiPredicate<? super Record, ? super Record> toPredicate() {
         throw new UnsupportedOperationException();
     }
     
@@ -106,7 +106,7 @@ public class JoinPred {
         }
     
         @Override
-        BiPredicate<? super Row, ? super Row> toPredicate() {
+        BiPredicate<? super Record, ? super Record> toPredicate() {
             if (side() == JoinAPI.NONE) {
                 Object leftVal = ((JoinExpr.Expr<?>) left).supplier.get();
                 Object rightVal = ((JoinExpr.Expr<?>) right).supplier.get();
@@ -116,21 +116,21 @@ public class JoinPred {
             }
             else if (left.side == JoinAPI.NONE) {
                 Object val = ((JoinExpr.Expr<?>) left).supplier.get();
-                Function<? super Row, ?> mapper = ((JoinExpr.RowExpr<?>) right).mapper;
+                Function<? super Record, ?> mapper = ((JoinExpr.RecordExpr<?>) right).mapper;
                 return right.side == JoinAPI.LEFT
                     ? (lt, rt) -> op.test(val, mapper.apply(lt))
                     : (lt, rt) -> op.test(val, mapper.apply(rt));
             }
             else if (right.side == JoinAPI.NONE) {
-                Function<? super Row, ?> mapper = ((JoinExpr.RowExpr<?>) left).mapper;
+                Function<? super Record, ?> mapper = ((JoinExpr.RecordExpr<?>) left).mapper;
                 Object val = ((JoinExpr.Expr<?>) right).supplier.get();
                 return left.side == JoinAPI.LEFT
                     ? (lt, rt) -> op.test(mapper.apply(lt), val)
                     : (lt, rt) -> op.test(mapper.apply(rt), val);
             }
             else {
-                Function<? super Row, ?> leftMapper = ((JoinExpr.RowExpr<?>) left).mapper;
-                Function<? super Row, ?> rightMapper = ((JoinExpr.RowExpr<?>) right).mapper;
+                Function<? super Record, ?> leftMapper = ((JoinExpr.RecordExpr<?>) left).mapper;
+                Function<? super Record, ?> rightMapper = ((JoinExpr.RecordExpr<?>) right).mapper;
                 return left.side == JoinAPI.LEFT
                     ? right.side == JoinAPI.LEFT
                         ? (lt, rt) -> op.test(leftMapper.apply(lt), rightMapper.apply(lt))
@@ -156,19 +156,19 @@ public class JoinPred {
         }
     
         @Override
-        BiPredicate<? super Row, ? super Row> toPredicate() {
+        BiPredicate<? super Record, ? super Record> toPredicate() {
             @SuppressWarnings("unchecked")
-            BiPredicate<? super Row, ? super Row>[] predicates = preds.stream().map(JoinPred::toPredicate).toArray(BiPredicate[]::new);
+            BiPredicate<? super Record, ? super Record>[] predicates = preds.stream().map(JoinPred::toPredicate).toArray(BiPredicate[]::new);
             if (isAny)
                 return (lt, rt) -> {
-                    for (BiPredicate<? super Row, ? super Row> predicate : predicates)
+                    for (BiPredicate<? super Record, ? super Record> predicate : predicates)
                         if (predicate.test(lt, rt))
                             return true;
                     return false;
                 };
             else
                 return (lt, rt) -> {
-                    for (BiPredicate<? super Row, ? super Row> predicate : predicates)
+                    for (BiPredicate<? super Record, ? super Record> predicate : predicates)
                         if (!predicate.test(lt, rt))
                             return false;
                     return true;
@@ -178,9 +178,9 @@ public class JoinPred {
     
     static class SideMatch extends JoinPred {
         final boolean isLeft;
-        final Predicate<? super Row> predicate;
+        final Predicate<? super Record> predicate;
         
-        SideMatch(boolean isLeft, Predicate<? super Row> predicate) {
+        SideMatch(boolean isLeft, Predicate<? super Record> predicate) {
             this.isLeft = isLeft;
             this.predicate = predicate;
         }
@@ -190,15 +190,15 @@ public class JoinPred {
         }
     
         @Override
-        BiPredicate<? super Row, ? super Row> toPredicate() {
+        BiPredicate<? super Record, ? super Record> toPredicate() {
             return isLeft ? (lt, rt) -> predicate.test(lt) : (lt, rt) -> predicate.test(rt);
         }
     }
     
     static class Match extends JoinPred {
-        final BiPredicate<? super Row, ? super Row> predicate;
+        final BiPredicate<? super Record, ? super Record> predicate;
         
-        Match(BiPredicate<? super Row, ? super Row> predicate) {
+        Match(BiPredicate<? super Record, ? super Record> predicate) {
             this.predicate = predicate;
         }
     
@@ -207,7 +207,7 @@ public class JoinPred {
         }
     
         @Override
-        BiPredicate<? super Row, ? super Row> toPredicate() {
+        BiPredicate<? super Record, ? super Record> toPredicate() {
             return predicate;
         }
     }
@@ -276,11 +276,11 @@ public class JoinPred {
     }
     
     static class IndexCreator implements Visitor {
-        final DatasetStream rStream;
+        final RecordStream rStream;
         final boolean retainUnmatchedRight;
         JoinAPI.Index output;
         
-        IndexCreator(DatasetStream rStream, boolean retainUnmatchedRight) {
+        IndexCreator(RecordStream rStream, boolean retainUnmatchedRight) {
             this.rStream = rStream;
             this.retainUnmatchedRight = retainUnmatchedRight;
         }
@@ -298,21 +298,21 @@ public class JoinPred {
                     Object rightVal = ((JoinExpr.Expr<?>) pred.right).supplier.get();
                     if (pred.op.test(leftVal, rightVal)) {
                         // Entire right side is matched.
-                        Row[] rightSide;
-                        try (DatasetStream ds = rStream) {
-                            // TODO: Only converting because JoinAPI expects FlaggedRows during right/full joins.
-                            Stream<Row> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRow::new) : ds.stream;
-                            rightSide = s.toArray(Row[]::new);
+                        Record[] rightSide;
+                        try (RecordStream ds = rStream) {
+                            // TODO: Only converting because JoinAPI expects FlaggedRecords during right/full joins.
+                            Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
+                            rightSide = s.toArray(Record[]::new);
                         }
                         output = new JoinAPI.Index() {
                             @Override
-                            public Stream<Row> unmatchedRight() {
+                            public Stream<Record> unmatchedRight() {
                                 return Stream.empty();
                             }
                             
                             @Override
-                            public void search(Row left, Consumer<Row> rx) {
-                                for (Row right : rightSide)
+                            public void search(Record left, Consumer<Record> rx) {
+                                for (Record right : rightSide)
                                     rx.accept(right);
                             }
                         };
@@ -323,12 +323,12 @@ public class JoinPred {
                             rStream.close();
                         output = new JoinAPI.Index() {
                             @Override
-                            public Stream<Row> unmatchedRight() {
+                            public Stream<Record> unmatchedRight() {
                                 return rStream;
                             }
                             
                             @Override
-                            public void search(Row left, Consumer<Row> rx) {
+                            public void search(Record left, Consumer<Record> rx) {
                                 // Nothing matches
                             }
                         };
@@ -344,53 +344,53 @@ public class JoinPred {
                     break;
                 }
                 case 3: /* BOTH */ {
-                    Function<? super Row, ?> leftMapper;
-                    Function<? super Row, ?> rightMapper;
+                    Function<? super Record, ?> leftMapper;
+                    Function<? super Record, ?> rightMapper;
                     if (pred.left.side == JoinAPI.LEFT) {
-                        leftMapper = ((JoinExpr.RowExpr<?>) pred.left).mapper;
-                        rightMapper = ((JoinExpr.RowExpr<?>) pred.right).mapper;
+                        leftMapper = ((JoinExpr.RecordExpr<?>) pred.left).mapper;
+                        rightMapper = ((JoinExpr.RecordExpr<?>) pred.right).mapper;
                     }
                     else {
-                        leftMapper = ((JoinExpr.RowExpr<?>) pred.right).mapper;
-                        rightMapper = ((JoinExpr.RowExpr<?>) pred.left).mapper;
+                        leftMapper = ((JoinExpr.RecordExpr<?>) pred.right).mapper;
+                        rightMapper = ((JoinExpr.RecordExpr<?>) pred.left).mapper;
                     }
                     if (pred.op == Binary.Op.EQ || pred.op == Binary.Op.NEQ) {
-                        Map<Object, List<Row>> indexedRight;
-                        try (DatasetStream ds = rStream) {
-                            Stream<Row> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRow::new) : ds.stream;
+                        Map<Object, List<Record>> indexedRight;
+                        try (RecordStream ds = rStream) {
+                            Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
                             indexedRight = s.collect(Collectors.groupingBy(rightMapper));
                         }
                         if (pred.op == Binary.Op.EQ) {
                             output = new JoinAPI.Index() {
                                 @Override
-                                public Stream<Row> unmatchedRight() {
-                                    return unjoinedRows(indexedRight.values().stream().flatMap(Collection::stream));
+                                public Stream<Record> unmatchedRight() {
+                                    return unjoinedRecords(indexedRight.values().stream().flatMap(Collection::stream));
                                 }
                                 
                                 @Override
-                                public void search(Row left, Consumer<Row> rx) {
+                                public void search(Record left, Consumer<Record> rx) {
                                     Object leftVal = leftMapper.apply(left);
-                                    List<Row> rows = indexedRight.get(leftVal);
-                                    if (rows != null)
-                                        for (Row row : rows)
-                                            rx.accept(row);
+                                    List<Record> records = indexedRight.get(leftVal);
+                                    if (records != null)
+                                        for (Record record : records)
+                                            rx.accept(record);
                                 }
                             };
                         }
                         else { // NEQ
                             output = new JoinAPI.Index() {
                                 @Override
-                                public Stream<Row> unmatchedRight() {
-                                    return unjoinedRows(indexedRight.values().stream().flatMap(Collection::stream));
+                                public Stream<Record> unmatchedRight() {
+                                    return unjoinedRecords(indexedRight.values().stream().flatMap(Collection::stream));
                                 }
                                 
                                 @Override
-                                public void search(Row left, Consumer<Row> rx) {
+                                public void search(Record left, Consumer<Record> rx) {
                                     Object leftVal = leftMapper.apply(left);
-                                    indexedRight.forEach((rightVal, rows) -> {
+                                    indexedRight.forEach((rightVal, records) -> {
                                         if (!Objects.equals(leftVal, rightVal))
-                                            for (Row row : rows)
-                                                rx.accept(row);
+                                            for (Record record : records)
+                                                rx.accept(record);
                                     });
                                 }
                             };
@@ -401,26 +401,26 @@ public class JoinPred {
                         // sides are reversed, we negate the operator to handle correctly.
                         Binary.Op op = pred.left.side == JoinAPI.LEFT ? pred.op : pred.op.negate();
                         boolean inclusive = op == Binary.Op.GTE || pred.op == Binary.Op.LTE;
-                        TreeMap<Object, List<Row>> indexedRight;
-                        try (DatasetStream ds = rStream) {
-                            Stream<Row> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRow::new) : ds.stream;
+                        TreeMap<Object, List<Record>> indexedRight;
+                        try (RecordStream ds = rStream) {
+                            Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
                             indexedRight = s.collect(Collectors.groupingBy(rightMapper, () -> new TreeMap<>(DEFAULT_COMPARATOR), Collectors.toList()));
                         }
                         abstract class TreeIndex implements JoinAPI.Index {
                             @Override
-                            public Stream<Row> unmatchedRight() {
-                                return unjoinedRows(indexedRight.values().stream().flatMap(Collection::stream));
+                            public Stream<Record> unmatchedRight() {
+                                return unjoinedRecords(indexedRight.values().stream().flatMap(Collection::stream));
                             }
                         }
                         switch (op) {
                             case GT, GTE: {
                                 output = new TreeIndex() {
                                     @Override
-                                    public void search(Row left, Consumer<Row> rx) {
+                                    public void search(Record left, Consumer<Record> rx) {
                                         Object leftVal = leftMapper.apply(left);
-                                        indexedRight.headMap(leftVal, inclusive).forEach((v, rows) -> {
-                                            for (Row row : rows)
-                                                rx.accept(row);
+                                        indexedRight.headMap(leftVal, inclusive).forEach((v, records) -> {
+                                            for (Record record : records)
+                                                rx.accept(record);
                                         });
                                     }
                                 };
@@ -429,11 +429,11 @@ public class JoinPred {
                             case LT, LTE: {
                                 output = new TreeIndex() {
                                     @Override
-                                    public void search(Row left, Consumer<Row> rx) {
+                                    public void search(Record left, Consumer<Record> rx) {
                                         Object leftVal = leftMapper.apply(left);
-                                        indexedRight.tailMap(leftVal, inclusive).forEach((v, rows) -> {
-                                            for (Row row : rows)
-                                                rx.accept(row);
+                                        indexedRight.tailMap(leftVal, inclusive).forEach((v, records) -> {
+                                            for (Record record : records)
+                                                rx.accept(record);
                                         });
                                     }
                                 };
@@ -455,21 +455,21 @@ public class JoinPred {
         @Override
         public void visit(AnyAll pred) {
             // TODO: Optimize. A lot.
-            BiPredicate<? super Row, ? super Row> predicate = pred.toPredicate();
-            Row[] rightSide;
-            try (DatasetStream ds = rStream) {
-                Stream<Row> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRow::new) : ds.stream;
-                rightSide = s.toArray(Row[]::new);
+            BiPredicate<? super Record, ? super Record> predicate = pred.toPredicate();
+            Record[] rightSide;
+            try (RecordStream ds = rStream) {
+                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
+                rightSide = s.toArray(Record[]::new);
             }
             output = new JoinAPI.Index() {
                 @Override
-                public Stream<Row> unmatchedRight() {
-                    return unjoinedRows(Arrays.stream(rightSide));
+                public Stream<Record> unmatchedRight() {
+                    return unjoinedRecords(Arrays.stream(rightSide));
                 }
         
                 @Override
-                public void search(Row left, Consumer<Row> rx) {
-                    for (Row right : rightSide)
+                public void search(Record left, Consumer<Record> rx) {
+                    for (Record right : rightSide)
                         if (predicate.test(left, right))
                             rx.accept(right);
                 }
@@ -486,56 +486,56 @@ public class JoinPred {
     
         @Override
         public void visit(Match pred) {
-            BiPredicate<? super Row, ? super Row> predicate = pred.predicate;
-            Row[] rightSide;
-            try (DatasetStream ds = rStream) {
-                Stream<Row> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRow::new) : ds.stream;
-                rightSide = s.toArray(Row[]::new);
+            BiPredicate<? super Record, ? super Record> predicate = pred.predicate;
+            Record[] rightSide;
+            try (RecordStream ds = rStream) {
+                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
+                rightSide = s.toArray(Record[]::new);
             }
             output = new JoinAPI.Index() {
                 @Override
-                public Stream<Row> unmatchedRight() {
-                    return unjoinedRows(Arrays.stream(rightSide));
+                public Stream<Record> unmatchedRight() {
+                    return unjoinedRecords(Arrays.stream(rightSide));
                 }
     
                 @Override
-                public void search(Row left, Consumer<Row> rx) {
-                    for (Row right : rightSide)
+                public void search(Record left, Consumer<Record> rx) {
+                    for (Record right : rightSide)
                         if (predicate.test(left, right))
                             rx.accept(right);
                 }
             };
         }
         
-        private void doLeftSideMatch(Predicate<? super Row> predicate) {
-            Row[] rightSide;
-            try (DatasetStream ds = rStream) {
-                Stream<Row> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRow::new) : ds.stream;
-                rightSide = s.toArray(Row[]::new);
+        private void doLeftSideMatch(Predicate<? super Record> predicate) {
+            Record[] rightSide;
+            try (RecordStream ds = rStream) {
+                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
+                rightSide = s.toArray(Record[]::new);
             }
             output = new JoinAPI.Index() {
                 @Override
-                public Stream<Row> unmatchedRight() {
-                    return unjoinedRows(Arrays.stream(rightSide));
+                public Stream<Record> unmatchedRight() {
+                    return unjoinedRecords(Arrays.stream(rightSide));
                 }
         
                 @Override
-                public void search(Row left, Consumer<Row> rx) {
+                public void search(Record left, Consumer<Record> rx) {
                     if (predicate.test(left))
-                        for (Row right : rightSide)
+                        for (Record right : rightSide)
                             rx.accept(right);
                 }
             };
         }
         
-        private void doRightSideMatch(Predicate<? super Row> predicate) {
-            List<Row> rightSide;
-            List<Row> retainedRight;
-            try (DatasetStream ds = rStream) {
+        private void doRightSideMatch(Predicate<? super Record> predicate) {
+            List<Record> rightSide;
+            List<Record> retainedRight;
+            try (RecordStream ds = rStream) {
                 if (retainUnmatchedRight) {
-                    // TODO: Only converting because JoinAPI expects FlaggedRows during right/full joins.
-                    Map<Boolean, List<Row>> partition = ds.stream
-                        .map(JoinAPI.FlaggedRow::new)
+                    // TODO: Only converting because JoinAPI expects FlaggedRecords during right/full joins.
+                    Map<Boolean, List<Record>> partition = ds.stream
+                        .map(JoinAPI.FlaggedRecord::new)
                         .collect(Collectors.partitioningBy(predicate));
                     rightSide = partition.get(true);
                     retainedRight = partition.get(false);
@@ -547,40 +547,40 @@ public class JoinPred {
             }
             output = new JoinAPI.Index() {
                 @Override
-                public Stream<Row> unmatchedRight() {
-                    return unjoinedRows(Stream.concat(rightSide.stream(), retainedRight.stream()));
+                public Stream<Record> unmatchedRight() {
+                    return unjoinedRecords(Stream.concat(rightSide.stream(), retainedRight.stream()));
                 }
         
                 @Override
-                public void search(Row left, Consumer<Row> rx) {
-                    for (Row right : rightSide)
+                public void search(Record left, Consumer<Record> rx) {
+                    for (Record right : rightSide)
                         rx.accept(right);
                 }
             };
         }
         
-        private static Stream<Row> unjoinedRows(Stream<Row> stream) {
-            Stream<JoinAPI.FlaggedRow> s = cast(stream);
-            return s.filter(row -> !row.isJoined).map(row -> row.row);
+        private static Stream<Record> unjoinedRecords(Stream<Record> stream) {
+            Stream<JoinAPI.FlaggedRecord> s = cast(stream);
+            return s.filter(record -> !record.isJoined).map(record -> record.record);
         }
         
-        private static Predicate<? super Row> singleSidePredicate(Binary pred) {
+        private static Predicate<? super Record> singleSidePredicate(Binary pred) {
             assert pred.side() == JoinAPI.RIGHT || pred.side() == JoinAPI.LEFT;
             Binary.Op op = pred.op;
             if (pred.left.side == JoinAPI.NONE) {
                 Object val = ((JoinExpr.Expr<?>) pred.left).supplier.get();
-                Function<? super Row, ?> mapper = ((JoinExpr.RowExpr<?>) pred.right).mapper;
-                return row -> op.test(val, mapper.apply(row));
+                Function<? super Record, ?> mapper = ((JoinExpr.RecordExpr<?>) pred.right).mapper;
+                return record -> op.test(val, mapper.apply(record));
             }
             else if (pred.right.side == JoinAPI.NONE) {
-                Function<? super Row, ?> mapper = ((JoinExpr.RowExpr<?>) pred.left).mapper;
+                Function<? super Record, ?> mapper = ((JoinExpr.RecordExpr<?>) pred.left).mapper;
                 Object val = ((JoinExpr.Expr<?>) pred.right).supplier.get();
-                return row -> op.test(mapper.apply(row), val);
+                return record -> op.test(mapper.apply(record), val);
             }
             else {
-                Function<? super Row, ?> mapper1 = ((JoinExpr.RowExpr<?>) pred.left).mapper;
-                Function<? super Row, ?> mapper2 = ((JoinExpr.RowExpr<?>) pred.right).mapper;
-                return row -> op.test(mapper1.apply(row), mapper2.apply(row));
+                Function<? super Record, ?> mapper1 = ((JoinExpr.RecordExpr<?>) pred.left).mapper;
+                Function<? super Record, ?> mapper2 = ((JoinExpr.RecordExpr<?>) pred.right).mapper;
+                return record -> op.test(mapper1.apply(record), mapper2.apply(record));
             }
         }
     }

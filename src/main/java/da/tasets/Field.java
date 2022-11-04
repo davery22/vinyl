@@ -1,14 +1,14 @@
 package da.tasets;
 
-public final class Column<T> {
+public final class Field<T> {
     private final String name;
     
-    public Column(String name) {
+    public Field(String name) {
         this.name = name;
     }
     
-    public T get(Row row) {
-        return row.get(this);
+    public T get(Record record) {
+        return record.get(this);
     }
     
     @Override

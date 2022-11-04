@@ -10,37 +10,37 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 public class SelectAPI {
-    private final DatasetStream stream;
-    private final Map<Column<?>, Integer> indexByColumn = new HashMap<>();
+    private final RecordStream stream;
+    private final Map<Field<?>, Integer> indexByField = new HashMap<>();
     private final List<Object> definitions = new ArrayList<>();
     
-    SelectAPI(DatasetStream stream) {
+    SelectAPI(RecordStream stream) {
         this.stream = stream;
     }
     
     public SelectAPI all() {
-        for (Column<?> column : stream.header.columns)
-            col(column);
+        for (Field<?> field : stream.header.fields)
+            field(field);
         return this;
     }
     
-    public SelectAPI allExcept(Column<?>... excluded) {
-        Set<Column<?>> excludedSet = Set.of(excluded);
-        for (Column<?> column : stream.header.columns)
-            if (!excludedSet.contains(column))
-                col(column);
+    public SelectAPI allExcept(Field<?>... excluded) {
+        Set<Field<?>> excludedSet = Set.of(excluded);
+        for (Field<?> field : stream.header.fields)
+            if (!excludedSet.contains(field))
+                field(field);
         return this;
     }
     
     @SuppressWarnings({"unchecked", "rawtypes"})
-    public SelectAPI col(Column<?> column) {
-        Locator locator = new Locator(column, stream.header.indexOf(column));
-        return col((Column) column, row -> row.get(locator));
+    public SelectAPI field(Field<?> field) {
+        FieldPin pin = new FieldPin(field, stream.header.indexOf(field));
+        return field((Field) field, record -> record.get(pin));
     }
     
-    public <T> SelectAPI col(Column<T> column, Function<? super Row, ? extends T> mapper) {
-        int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-        RowMapper def = new RowMapper(index, mapper);
+    public <T> SelectAPI field(Field<T> field, Function<? super Record, ? extends T> mapper) {
+        int index = indexByField.computeIfAbsent(field, k -> definitions.size());
+        RecordMapper def = new RecordMapper(index, mapper);
         if (index == definitions.size())
             definitions.add(def);
         else
@@ -48,14 +48,14 @@ public class SelectAPI {
         return this;
     }
     
-    public SelectAPI cols(Column<?>... columns) {
-        for (Column<?> column : columns)
-            col(column);
+    public SelectAPI fields(Field<?>... fields) {
+        for (Field<?> field : fields)
+            field(field);
         return this;
     }
     
-    public <T> SelectAPI cols(Function<? super Row, ? extends T> mapper, Consumer<Cols<T>> config) {
-        config.accept(new Cols<>(mapper));
+    public <T> SelectAPI fields(Function<? super Record, ? extends T> mapper, Consumer<Fields<T>> config) {
+        config.accept(new Fields<>(mapper));
         return this;
     }
     
@@ -64,77 +64,77 @@ public class SelectAPI {
         return this;
     }
     
-    DatasetStream accept(Consumer<SelectAPI> config) {
+    RecordStream accept(Consumer<SelectAPI> config) {
         config.accept(this);
     
         // Avoid picking up side-effects from bad-actor callbacks.
-        // Final mappers will combine ObjMapper children into their parent.
-        Map<Column<?>, Integer> finalIndexByColumn = Map.copyOf(indexByColumn);
+        // Final mappers will combine ObjectMapper children into their parent.
+        Map<Field<?>, Integer> finalIndexByField = Map.copyOf(indexByField);
         List<Mapper> finalMappers = new ArrayList<>();
         List<Window> finalWindows = new ArrayList<>();
         
         for (Object definition : definitions) {
-            if (definition instanceof RowMapper)
-                finalMappers.add((RowMapper) definition);
-            else if (definition instanceof Cols.ObjMapper) {
-                Cols<?>.ObjMapper def = (Cols<?>.ObjMapper) definition;
-                Cols<?> parent = def.addToParent();
+            if (definition instanceof RecordMapper)
+                finalMappers.add((RecordMapper) definition);
+            else if (definition instanceof Fields.ObjectMapper) {
+                Fields<?>.ObjectMapper def = (Fields<?>.ObjectMapper) definition;
+                Fields<?> parent = def.addToParent();
                 if (parent != null)
                     finalMappers.add(parent);
-            } else if (definition instanceof Window.ColRowMapper) {
-                Window.ColRowMapper<?> def = (Window.ColRowMapper<?>) definition;
+            } else if (definition instanceof Window.FieldRecordMapper) {
+                Window.FieldRecordMapper<?> def = (Window.FieldRecordMapper<?>) definition;
                 Window parent = def.addToParent();
                 if (parent != null)
                     finalWindows.add(parent);
             } else {
-                assert definition instanceof Window.Cols.ColObjMapper;
-                Window.Cols<?>.ColObjMapper<?> def = (Window.Cols<?>.ColObjMapper<?>) definition;
+                assert definition instanceof Window.Fields.FieldObjectMapper;
+                Window.Fields<?>.FieldObjectMapper<?> def = (Window.Fields<?>.FieldObjectMapper<?>) definition;
                 Window parent = def.addToParent();
                 if (parent != null)
                     finalWindows.add(parent);
             }
         }
         
-        // Prep the row-by-row transformation.
+        // Prep the stream transformation.
         int size = definitions.size();
-        Header nextHeader = new Header(finalIndexByColumn);
-        Stream<Row> nextStream;
+        Header nextHeader = new Header(finalIndexByField);
+        Stream<Record> nextStream;
         
         if (finalWindows.isEmpty())
-            nextStream = stream.stream.map(row -> {
+            nextStream = stream.stream.map(record -> {
                 Object[] arr = new Object[size];
                 for (Mapper mapper : finalMappers)
-                    mapper.accept(row, arr);
-                return new Row(nextHeader, arr);
+                    mapper.accept(record, arr);
+                return new Record(nextHeader, arr);
             });
         else {
-            nextStream = streamWindows(stream.stream.map(row -> new LinkedRow(row, new Object[size])),
+            nextStream = streamWindows(stream.stream.map(record -> new LinkedRecord(record, new Object[size])),
                                        finalWindows)
-                .map(row -> {
-                    Object[] arr = row.next;
+                .map(record -> {
+                    Object[] arr = record.next;
                     for (Mapper mapper : finalMappers)
-                        mapper.accept(row, arr);
-                    return new Row(nextHeader, row.next);
+                        mapper.accept(record, arr);
+                    return new Record(nextHeader, record.next);
                 });
         }
         
-        return new DatasetStream(nextHeader, nextStream);
+        return new RecordStream(nextHeader, nextStream);
     }
     
-    private Stream<LinkedRow> streamWindows(Stream<LinkedRow> stream, List<Window> windows) {
-        Stream<LinkedRow> curr = stream;
+    private Stream<LinkedRecord> streamWindows(Stream<LinkedRecord> stream, List<Window> windows) {
+        Stream<LinkedRecord> curr = stream;
         // Process windows sequentially to minimize memory usage.
         // TODO: Merge keyless (non-partitioned) windows, and skip groupingBy step for those.
         for (Window window : windows) {
             // Copying keyMapperChildren to array also acts as a defensive copy against bad-actor user code.
             // There is no need to do the same for windowFnChildren (used in Window::accept), as they can only be added
             // by trusted code.
-            Function<Row, List<?>> classifier = classifierFor(window.keyMapperChildren.toArray(Window.KeyMapper[]::new), window.keyCount);
-            Collector<LinkedRow, ?, Map<List<?>, List<LinkedRow>>> collector = Collectors.groupingBy(classifier, Collectors.toList());
-            Stream<LinkedRow> prev = curr;
+            Function<Record, List<?>> classifier = classifierFor(window.keyMapperChildren.toArray(Window.KeyMapper[]::new), window.keyCount);
+            Collector<LinkedRecord, ?, Map<List<?>, List<LinkedRecord>>> collector = Collectors.groupingBy(classifier, Collectors.toList());
+            Stream<LinkedRecord> prev = curr;
             curr = StreamSupport.stream(
                 () -> {
-                    Collection<List<LinkedRow>> partitions = prev.collect(collector).values();
+                    Collection<List<LinkedRecord>> partitions = prev.collect(collector).values();
                     (stream.isParallel() ? partitions.parallelStream() : partitions.stream())
                         .forEach(window::accept);
                     return partitions.spliterator();
@@ -146,45 +146,45 @@ public class SelectAPI {
         return curr.onClose(stream::close);
     }
     
-    private Function<Row, List<?>> classifierFor(Window.KeyMapper[] mappers, int keysSize) {
-        return row -> {
+    private Function<Record, List<?>> classifierFor(Window.KeyMapper[] mappers, int keysSize) {
+        return record -> {
             Object[] arr = new Object[keysSize];
             for (Window.KeyMapper mapper : mappers)
-                mapper.accept(row, arr);
+                mapper.accept(record, arr);
             return Arrays.asList(arr); // convert to List for equals/hashCode
         };
     }
     
     private abstract static class Mapper {
-        abstract void accept(Row row, Object[] arr);
+        abstract void accept(Record record, Object[] arr);
     }
     
-    private static class RowMapper extends Mapper {
+    private static class RecordMapper extends Mapper {
         final int index;
-        final Function<? super Row, ?> mapper;
+        final Function<? super Record, ?> mapper;
         
-        RowMapper(int index, Function<? super Row, ?> mapper) {
+        RecordMapper(int index, Function<? super Record, ?> mapper) {
             this.index = index;
             this.mapper = mapper;
         }
         
         @Override
-        void accept(Row row, Object[] arr) {
-            arr[index] = mapper.apply(row);
+        void accept(Record record, Object[] arr) {
+            arr[index] = mapper.apply(record);
         }
     }
     
-    public class Cols<T> extends Mapper {
-        final Function<? super Row, ? extends T> mapper;
-        final List<ObjMapper> children = new ArrayList<>();
+    public class Fields<T> extends Mapper {
+        final Function<? super Record, ? extends T> mapper;
+        final List<ObjectMapper> children = new ArrayList<>();
         
-        Cols(Function<? super Row, ? extends T> mapper) {
+        Fields(Function<? super Record, ? extends T> mapper) {
             this.mapper = mapper;
         }
         
-        public <U> Cols<T> col(Column<U> column, Function<? super T, ? extends U> mapper) {
-            int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-            ObjMapper def = new ObjMapper(index, mapper);
+        public <U> Fields<T> field(Field<U> field, Function<? super T, ? extends U> mapper) {
+            int index = indexByField.computeIfAbsent(field, k -> definitions.size());
+            ObjectMapper def = new ObjectMapper(index, mapper);
             if (index == definitions.size())
                 definitions.add(def);
             else
@@ -193,16 +193,16 @@ public class SelectAPI {
         }
         
         @Override
-        void accept(Row row, Object[] arr) {
-            T obj = mapper.apply(row);
+        void accept(Record record, Object[] arr) {
+            T obj = mapper.apply(record);
             children.forEach(child -> child.accept(obj, arr));
         }
     
-        private class ObjMapper {
+        private class ObjectMapper {
             final int index;
             final Function<? super T, ?> mapper;
             
-            ObjMapper(int index, Function<? super T, ?> mapper) {
+            ObjectMapper(int index, Function<? super T, ?> mapper) {
                 this.index = index;
                 this.mapper = mapper;
             }
@@ -211,10 +211,10 @@ public class SelectAPI {
                 arr[index] = mapper.apply(in);
             }
             
-            Cols<T> addToParent() {
-                boolean isParentUnseen = Cols.this.children.isEmpty();
-                Cols.this.children.add(this);
-                return isParentUnseen ? Cols.this : null;
+            Fields<T> addToParent() {
+                boolean isParentUnseen = Fields.this.children.isEmpty();
+                Fields.this.children.add(this);
+                return isParentUnseen ? Fields.this : null;
             }
         }
     }
@@ -227,28 +227,28 @@ public class SelectAPI {
         Window() {} // Prevent default public constructor
         
         @SuppressWarnings({"unchecked", "rawtypes"})
-        public Window key(Column<?> column) {
-            Locator locator = new Locator(column, stream.header.indexOf(column));
-            return key(locator::get);
+        public Window key(Field<?> field) {
+            FieldPin pin = new FieldPin(field, stream.header.indexOf(field));
+            return key(pin::get);
         }
     
-        public Window key(Function<? super Row, ?> mapper) {
-            // Since all keys are temps and cannot be overridden, can bypass definitions and indexByColumn,
+        public Window key(Function<? super Record, ?> mapper) {
+            // Since all keys are temps and cannot be overridden, can bypass definitions and indexByField,
             // and just add to parent right away. This simplifies much.
-            new KeyRowMapper(keyCount++, mapper).addToParent();
+            new KeyRecordMapper(keyCount++, mapper).addToParent();
             return this;
         }
         
-        public <T> Window col(Column<T> column,
-                                 BiConsumer<? super List<Row>, ? super Consumer<T>> mapper) {
-            return col(column, null, mapper);
+        public <T> Window field(Field<T> field,
+                                BiConsumer<? super List<Record>, ? super Consumer<T>> mapper) {
+            return field(field, null, mapper);
         }
     
-        public <T> Window col(Column<T> column,
-                                 Comparator<? super Row> comparator,
-                                 BiConsumer<? super List<Row>, ? super Consumer<T>> mapper) {
-            int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-            ColRowMapper<T> def = new ColRowMapper<>(index, comparator, mapper);
+        public <T> Window field(Field<T> field,
+                                Comparator<? super Record> comparator,
+                                BiConsumer<? super List<Record>, ? super Consumer<T>> mapper) {
+            int index = indexByField.computeIfAbsent(field, k -> definitions.size());
+            FieldRecordMapper<T> def = new FieldRecordMapper<>(index, comparator, mapper);
             if (index == definitions.size())
                 definitions.add(def);
             else
@@ -256,62 +256,62 @@ public class SelectAPI {
             return this;
         }
     
-        public Window keys(Column<?>... columns) {
-            for (Column<?> column : columns)
-                key(column);
+        public Window keys(Field<?>... fields) {
+            for (Field<?> field : fields)
+                key(field);
             return this;
         }
         
-        public <T> Window keys(Function<? super Row, ? extends T> mapper,
+        public <T> Window keys(Function<? super Record, ? extends T> mapper,
                                Consumer<Window.Keys<T>> config) {
             config.accept(new Window.Keys<>(mapper));
             return this;
         }
         
-        public <T> Window cols(Function<? super List<Row>, ? extends T> mapper,
-                               Consumer<Window.Cols<T>> config) {
-            config.accept(new Window.Cols<>(null, mapper));
+        public <T> Window fields(Function<? super List<Record>, ? extends T> mapper,
+                                 Consumer<Fields<T>> config) {
+            config.accept(new Fields<>(null, mapper));
             return this;
         }
     
-        public <T> Window cols(Comparator<? super Row> comparator,
-                               Consumer<Window.Cols<List<Row>>> config) {
-            config.accept(new Window.Cols<>(comparator, Function.identity()));
+        public <T> Window fields(Comparator<? super Record> comparator,
+                                 Consumer<Fields<List<Record>>> config) {
+            config.accept(new Fields<>(comparator, Function.identity()));
             return this;
         }
     
-        public <T> Window cols(Comparator<? super Row> comparator,
-                               Function<? super List<Row>, ? extends T> mapper,
-                               Consumer<Window.Cols<T>> config) {
-            config.accept(new Window.Cols<>(comparator, mapper));
+        public <T> Window fields(Comparator<? super Record> comparator,
+                                 Function<? super List<Record>, ? extends T> mapper,
+                                 Consumer<Fields<T>> config) {
+            config.accept(new Fields<>(comparator, mapper));
             return this;
         }
         
-        void accept(List<LinkedRow> rows) {
+        void accept(List<LinkedRecord> records) {
             // TODO: Process unordered window functions first (preserve original encounter order).
-            windowFnChildren.forEach(child -> child.accept(rows));
+            windowFnChildren.forEach(child -> child.accept(records));
         }
         
         private abstract static class KeyMapper {
-            abstract void accept(Row row, Object[] arr);
+            abstract void accept(Record record, Object[] arr);
         }
         
         private abstract static class WindowFunction {
-            abstract void accept(List<LinkedRow> rows);
+            abstract void accept(List<LinkedRecord> records);
         }
         
-        private class KeyRowMapper extends KeyMapper {
-            final Function<? super Row, ?> mapper;
+        private class KeyRecordMapper extends KeyMapper {
+            final Function<? super Record, ?> mapper;
             final int localIndex;
             
-            KeyRowMapper(int localIndex, Function<? super Row, ?> mapper) {
+            KeyRecordMapper(int localIndex, Function<? super Record, ?> mapper) {
                 this.localIndex = localIndex;
                 this.mapper = mapper;
             }
     
             @Override
-            void accept(Row row, Object[] arr) {
-                arr[localIndex] = mapper.apply(row);
+            void accept(Record record, Object[] arr) {
+                arr[localIndex] = mapper.apply(record);
             }
             
             void addToParent() {
@@ -319,40 +319,40 @@ public class SelectAPI {
             }
         }
         
-        private class ColRowMapper<T> extends WindowFunction {
+        private class FieldRecordMapper<T> extends WindowFunction {
             final int index;
-            final Comparator<? super Row> comparator;
-            final BiConsumer<? super List<Row>, ? super Consumer<T>> mapper;
+            final Comparator<? super Record> comparator;
+            final BiConsumer<? super List<Record>, ? super Consumer<T>> mapper;
             
-            ColRowMapper(int index,
-                         Comparator<? super Row> comparator,
-                         BiConsumer<? super List<Row>, ? super Consumer<T>> mapper) {
+            FieldRecordMapper(int index,
+                              Comparator<? super Record> comparator,
+                              BiConsumer<? super List<Record>, ? super Consumer<T>> mapper) {
                 this.index = index;
                 this.comparator = comparator;
                 this.mapper = mapper;
             }
     
             @Override
-            void accept(List<LinkedRow> rows) {
+            void accept(List<LinkedRecord> records) {
                 if (comparator != null)
-                    rows.sort(comparator);
+                    records.sort(comparator);
                 class Sink implements Consumer<T> {
                     int i = 0;
                     public void accept(T it) {
                         // Throws IOOBE
-                        rows.get(i++).next[index] = it;
+                        records.get(i++).next[index] = it;
                     }
                     void finish() {
                         if (i == 1) {
-                            Object first = rows.get(0).next[index];
-                            rows.forEach(row -> row.next[index] = first);
-                        } else if (i != rows.size()) {
-                            throw new IllegalStateException("Window function must produce exactly one value, or one value per row");
+                            Object first = records.get(0).next[index];
+                            records.forEach(record -> record.next[index] = first);
+                        } else if (i != records.size()) {
+                            throw new IllegalStateException("Window function must produce exactly one value, or one value per record");
                         }
                     }
                 }
                 Sink sink = new Sink();
-                mapper.accept(Collections.unmodifiableList(rows), sink);
+                mapper.accept(Collections.unmodifiableList(records), sink);
                 sink.finish();
             }
             
@@ -364,23 +364,23 @@ public class SelectAPI {
         }
     
         public class Keys<T> extends KeyMapper {
-            final Function<? super Row, ? extends T> mapper;
-            final List<KeyObjMapper> children = new ArrayList<>();
+            final Function<? super Record, ? extends T> mapper;
+            final List<KeyObjectMapper> children = new ArrayList<>();
             
-            Keys(Function<? super Row, ? extends T> mapper) {
+            Keys(Function<? super Record, ? extends T> mapper) {
                 this.mapper = mapper;
             }
             
             public Keys<T> key(Function<? super T, ?> mapper) {
-                // Since all keys are temps and cannot be overridden, can bypass definitions and indexByColumn,
+                // Since all keys are temps and cannot be overridden, can bypass definitions and indexByField,
                 // and just add to parent right away. This simplifies much.
-                new KeyObjMapper(keyCount++, mapper).addToParent();
+                new KeyObjectMapper(keyCount++, mapper).addToParent();
                 return this;
             }
             
             @Override
-            void accept(Row row, Object[] arr) {
-                T obj = mapper.apply(row);
+            void accept(Record record, Object[] arr) {
+                T obj = mapper.apply(record);
                 children.forEach(child -> child.accept(obj, arr));
             }
             
@@ -388,11 +388,11 @@ public class SelectAPI {
                 Window.this.keyMapperChildren.add(this);
             }
             
-            private class KeyObjMapper {
+            private class KeyObjectMapper {
                 final Function<? super T, ?> mapper;
                 final int localIndex;
                 
-                KeyObjMapper(int localIndex, Function<? super T, ?> mapper) {
+                KeyObjectMapper(int localIndex, Function<? super T, ?> mapper) {
                     this.localIndex = localIndex;
                     this.mapper = mapper;
                 }
@@ -410,21 +410,21 @@ public class SelectAPI {
             }
         }
         
-        public class Cols<T> extends WindowFunction {
-            final Comparator<? super Row> comparator;
-            final Function<? super List<Row>, ? extends T> mapper;
-            final List<ColObjMapper<?>> children = new ArrayList<>();
+        public class Fields<T> extends WindowFunction {
+            final Comparator<? super Record> comparator;
+            final Function<? super List<Record>, ? extends T> mapper;
+            final List<FieldObjectMapper<?>> children = new ArrayList<>();
             
-            Cols(Comparator<? super Row> comparator,
-                 Function<? super List<Row>, ? extends T> mapper) {
+            Fields(Comparator<? super Record> comparator,
+                   Function<? super List<Record>, ? extends T> mapper) {
                 this.comparator = comparator;
                 this.mapper = mapper;
             }
             
-            public <U> Cols<T> col(Column<U> column,
-                                      BiConsumer<? super T, ? super Consumer<U>> mapper) {
-                int index = indexByColumn.computeIfAbsent(column, k -> definitions.size());
-                ColObjMapper<U> def = new ColObjMapper<>(index, mapper);
+            public <U> Fields<T> field(Field<U> field,
+                                       BiConsumer<? super T, ? super Consumer<U>> mapper) {
+                int index = indexByField.computeIfAbsent(field, k -> definitions.size());
+                FieldObjectMapper<U> def = new FieldObjectMapper<>(index, mapper);
                 if (index == definitions.size())
                     definitions.add(def);
                 else
@@ -433,11 +433,11 @@ public class SelectAPI {
             }
     
             @Override
-            void accept(List<LinkedRow> rows) {
+            void accept(List<LinkedRecord> records) {
                 if (comparator != null)
-                    rows.sort(comparator);
-                T obj = mapper.apply(Collections.unmodifiableList(rows));
-                children.forEach(child -> child.accept(rows, obj));
+                    records.sort(comparator);
+                T obj = mapper.apply(Collections.unmodifiableList(records));
+                children.forEach(child -> child.accept(records, obj));
             }
             
             Window addToParent() {
@@ -446,28 +446,28 @@ public class SelectAPI {
                 return isParentUnseen ? Window.this : null;
             }
             
-            private class ColObjMapper<U> {
+            private class FieldObjectMapper<U> {
                 final int index;
                 final BiConsumer<? super T, ? super Consumer<U>> mapper;
                 
-                ColObjMapper(int index, BiConsumer<? super T, ? super Consumer<U>> mapper) {
+                FieldObjectMapper(int index, BiConsumer<? super T, ? super Consumer<U>> mapper) {
                     this.index = index;
                     this.mapper = mapper;
                 }
                 
-                void accept(List<LinkedRow> rows, T obj) {
+                void accept(List<LinkedRecord> records, T obj) {
                     class Sink implements Consumer<U> {
                         int i = 0;
                         public void accept(U it) {
                             // Throws IOOBE
-                            rows.get(i++).next[index] = it;
+                            records.get(i++).next[index] = it;
                         }
                         void finish() {
                             if (i == 1) {
-                                Object first = rows.get(0).next[index];
-                                rows.forEach(row -> row.next[index] = first);
-                            } else if (i != rows.size()) {
-                                throw new IllegalStateException("Window function must produce exactly one value, or one value per row");
+                                Object first = records.get(0).next[index];
+                                records.forEach(record -> record.next[index] = first);
+                            } else if (i != records.size()) {
+                                throw new IllegalStateException("Window function must produce exactly one value, or one value per record");
                             }
                         }
                     }
@@ -477,20 +477,20 @@ public class SelectAPI {
                 }
                 
                 Window addToParent() {
-                    boolean isParentUnseen = Cols.this.children.isEmpty();
-                    Cols.this.children.add(this);
-                    return isParentUnseen ? Cols.this.addToParent() : null;
+                    boolean isParentUnseen = Fields.this.children.isEmpty();
+                    Fields.this.children.add(this);
+                    return isParentUnseen ? Fields.this.addToParent() : null;
                 }
             }
         }
     }
     
     // Used by window / analytical functions.
-    static class LinkedRow extends Row {
+    static class LinkedRecord extends Record {
         final Object[] next;
         
-        LinkedRow(Row curr, Object[] next) {
-            super(curr.header, curr.data);
+        LinkedRecord(Record curr, Object[] next) {
+            super(curr.header, curr.values);
             this.next = next;
         }
     }

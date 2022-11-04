@@ -2,7 +2,7 @@ package da.tasets;
 
 import java.util.Comparator;
 
-class UnsafeUtils {
+class Utils {
     @SuppressWarnings("unchecked")
     static <T> T cast(Object o) {
         return (T) o;
@@ -23,11 +23,11 @@ class UnsafeUtils {
     };
     
     /**
-     * Only safe when Rows have the same Header and all Columns are Comparable.
+     * Only safe when Records have the same Header and all Fields are Comparable.
      */
-    static final Comparator<Row> HEADLESS_ROW_COMPARATOR = (a, b) -> {
-        for (int i = 0; i < a.data.length; i++) {
-            int v = DEFAULT_COMPARATOR.compare(a.data[i], b.data[i]);
+    static final Comparator<Record> HEADLESS_RECORD_COMPARATOR = (a, b) -> {
+        for (int i = 0; i < a.values.length; i++) {
+            int v = DEFAULT_COMPARATOR.compare(a.values[i], b.values[i]);
             if (v != 0) {
                 return v;
             }
@@ -35,7 +35,7 @@ class UnsafeUtils {
         return 0;
     };
     
-    static Column<?> tempColumn() {
-        return new Column<>("<anonymous>");
+    static Field<?> tempField() {
+        return new Field<>("<anonymous>");
     }
 }

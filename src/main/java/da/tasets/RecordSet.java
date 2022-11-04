@@ -4,41 +4,41 @@ import java.util.function.Consumer;
 import java.util.stream.Collector;
 import java.util.stream.Stream;
 
-public class Dataset {
+public class RecordSet {
     private final Header header;
-    private final Object[][] rows;
+    private final Object[][] records;
     
-    Dataset(Header header, Object[][] rows) {
+    RecordSet(Header header, Object[][] records) {
         this.header = header;
-        this.rows = rows;
+        this.records = records;
     }
     
     public Header header() {
         return header;
     }
     
-    public DatasetStream stream() {
-        return new DatasetStream(header, Stream.of(rows).map(data -> new Row(header, data)));
+    public RecordStream stream() {
+        return new RecordStream(header, Stream.of(records).map(values -> new Record(header, values)));
     }
     
     // TODO: Use separate CollectorAPI to permit future persistent indexes?
-    public static <T> Collector<T, ?, Dataset> collector(Consumer<MapAPI<T>> config) {
+    public static <T> Collector<T, ?, RecordSet> collector(Consumer<MapAPI<T>> config) {
         return new MapAPI<T>().collector(config);
     }
     
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("Dataset[\n\t[");
+        StringBuilder sb = new StringBuilder("RecordSet[\n\t[");
         String delimiter = "";
-        for (Column<?> column : header.columns) {
-            sb.append(delimiter).append(column);
+        for (Field<?> field : header.fields) {
+            sb.append(delimiter).append(field);
             delimiter = ", ";
         }
         sb.append(']');
-        for (Object[] row : rows) {
+        for (Object[] values : records) {
             sb.append(",\n\t[");
             delimiter = "";
-            for (Object val : row) {
+            for (Object val : values) {
                 sb.append(delimiter).append(val);
                 delimiter = ", ";
             }

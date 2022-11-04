@@ -10,13 +10,13 @@ public class JoinExpr<T> {
         this.side = side;
     }
     
-    static class RowExpr<T> extends JoinExpr<T> {
-        final Column<T> column; // nullable
-        final Function<? super Row, T> mapper;
+    static class RecordExpr<T> extends JoinExpr<T> {
+        final Field<T> field; // nullable
+        final Function<? super Record, T> mapper;
         
-        RowExpr(Column<T> column, int side, Function<? super Row, T> mapper) {
+        RecordExpr(Field<T> field, int side, Function<? super Record, T> mapper) {
             super(side);
-            this.column = column;
+            this.field = field;
             this.mapper = mapper;
         }
     }

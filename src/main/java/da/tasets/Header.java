@@ -2,26 +2,26 @@ package da.tasets;
 
 import java.util.*;
 
-class Header {
-    final Map<Column<?>, Integer> indexByColumn;
-    final Column<?>[] columns;
+public class Header {
+    final Map<Field<?>, Integer> indexByField;
+    final Field<?>[] fields;
     
-    Header(Map<Column<?>, Integer> indexByColumn) {
-        this.indexByColumn = indexByColumn;
-        this.columns = new Column[indexByColumn.size()];
-        indexByColumn.forEach((col, i) -> columns[i] = col);
+    Header(Map<Field<?>, Integer> indexByField) {
+        this.indexByField = indexByField;
+        this.fields = new Field[indexByField.size()];
+        indexByField.forEach((field, i) -> fields[i] = field);
     }
     
-    public int indexOf(Column<?> column) {
-        return Objects.requireNonNull(indexByColumn.get(column), () -> "Unknown column: " + column);
+    public int indexOf(Field<?> field) {
+        return Objects.requireNonNull(indexByField.get(field), () -> "Unknown field: " + field);
     }
     
-    public <T> Locator<T> locator(Column<T> column) {
-        return new Locator<>(column, indexOf(column));
+    public <T> FieldPin<T> pin(Field<T> field) {
+        return new FieldPin<>(field, indexOf(field));
     }
     
-    public List<Column<?>> columns() {
-        return Collections.unmodifiableList(Arrays.asList(columns));
+    public List<Field<?>> fields() {
+        return Collections.unmodifiableList(Arrays.asList(fields));
     }
     
     @Override
@@ -30,16 +30,16 @@ class Header {
             return true;
         if (!(o instanceof Header))
             return false;
-        return Arrays.equals(columns, ((Header) o).columns);
+        return Arrays.equals(fields, ((Header) o).fields);
     }
     
     @Override
     public int hashCode() {
-        return Arrays.hashCode(columns);
+        return Arrays.hashCode(fields);
     }
     
     @Override
     public String toString() {
-        return "Header" + Arrays.toString(columns);
+        return "Header" + Arrays.toString(fields);
     }
 }

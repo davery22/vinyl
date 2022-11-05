@@ -13,11 +13,17 @@ public class Header {
     }
     
     public int indexOf(Field<?> field) {
-        return Objects.requireNonNull(indexByField.get(field), () -> "Unknown field: " + field);
+        Objects.requireNonNull(field);
+        Integer index = indexByField.get(field);
+        return index != null ? index : -1;
     }
     
     public <T> FieldPin<T> pin(Field<T> field) {
-        return new FieldPin<>(field, indexOf(field));
+        Objects.requireNonNull(field);
+        Integer index = indexByField.get(field);
+        if (index == null)
+            throw new NoSuchElementException("Invalid field: " + field);
+        return new FieldPin<>(field, index);
     }
     
     public List<Field<?>> fields() {

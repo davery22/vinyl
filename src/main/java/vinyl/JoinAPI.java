@@ -40,7 +40,7 @@ public class JoinAPI {
         // Avoid picking up side-effects from bad-actor callbacks.
         // Final mappers will combine ObjectMapper children into their parent.
         Map<Field<?>, Integer> finalIndexByField = new HashMap<>(select.indexByField);
-        List<Select.Mapper> finalMappers = new ArrayList<>();
+        List<Mapper> finalMappers = new ArrayList<>();
     
         for (Object definition : select.definitions) {
             if (definition instanceof Select.RecordMapper)
@@ -58,7 +58,7 @@ public class JoinAPI {
         Header nextHeader = new Header(finalIndexByField);
         BinaryOperator<Record> combiner = (lt, rt) -> {
             Object[] arr = new Object[size];
-            for (Select.Mapper mapper : finalMappers)
+            for (Mapper mapper : finalMappers)
                 mapper.accept(lt, rt, arr);
             return new Record(nextHeader, arr);
         };
@@ -113,7 +113,7 @@ public class JoinAPI {
                                                  () -> (lazyJoiner.isReleasable() ? lazyJoiner.get().unmatchedRight() : right.stream)
                                                      .map(record -> combiner.apply(leftNilRecord, record))
                                                      .spliterator()),
-                0, // TODO: Make sure we can still split
+                0,
                 s.isParallel()
             ).onClose(s::close);
         }
@@ -188,7 +188,7 @@ public class JoinAPI {
         @Override
         public void search(Record left, Consumer<Record> rx) {
             Consumer<FlaggedRecord> sink = right -> {
-                right.isJoined = true;
+                right.isMatched = true;
                 rx.accept(combiner.apply(left, right.record));
             };
             index.search(left, Utils.cast(sink));
@@ -222,7 +222,7 @@ public class JoinAPI {
                 boolean noneMatch = true;
                 public void accept(FlaggedRecord right) {
                     noneMatch = false;
-                    right.isJoined = true;
+                    right.isMatched = true;
                     rx.accept(combiner.apply(left, right.record));
                 }
                 public void finish() {
@@ -364,10 +364,10 @@ public class JoinAPI {
     }
     
     // Used by right/full joins to keep track of unmatched records on the right. During the join, records that are
-    // matched are marked as joined. Remaining un-joined records are emitted after the join.
+    // matched are flagged. Remaining unmatched records are emitted after the join.
     static class FlaggedRecord extends Record {
         final Record record;
-        boolean isJoined = false;
+        boolean isMatched = false;
         
         FlaggedRecord(Record record) {
             super(record.header, record.values);
@@ -380,23 +380,26 @@ public class JoinAPI {
     
         public <T> JoinExpr<T> left(Field<T> field) {
             FieldPin<T> pin = left.header.pin(field);
-            return new JoinExpr.RecordExpr<>(field, JoinAPI.LEFT, pin::get);
+            return new JoinExpr.RecordExpr<>(field, JoinAPI.LEFT, record -> record.get(pin));
         }
         
         public <T> JoinExpr<T> right(Field<T> field) {
             FieldPin<T> pin = right.header.pin(field);
-            return new JoinExpr.RecordExpr<>(field, JoinAPI.RIGHT, pin::get);
+            return new JoinExpr.RecordExpr<>(field, JoinAPI.RIGHT, record -> record.get(pin));
         }
         
         public <T> JoinExpr<T> left(Function<? super Record, T> mapper) {
+            Objects.requireNonNull(mapper);
             return new JoinExpr.RecordExpr<>(null, JoinAPI.LEFT, mapper);
         }
         
         public <T> JoinExpr<T> right(Function<? super Record, T> mapper) {
+            Objects.requireNonNull(mapper);
             return new JoinExpr.RecordExpr<>(null, JoinAPI.RIGHT, mapper);
         }
         
         public <T> JoinExpr<T> eval(Supplier<T> supplier) {
+            Objects.requireNonNull(supplier);
             return new JoinExpr.Expr<>(supplier);
         }
         
@@ -410,6 +413,14 @@ public class JoinAPI {
     
         public JoinPred neq(JoinExpr<?> left, JoinExpr<?> right) {
             return new JoinPred.Binary(JoinPred.Binary.Op.NEQ, left, right);
+        }
+    
+        public <T extends Comparable<? super T>> JoinPred ceq(JoinExpr<T> left, JoinExpr<T> right) {
+            return new JoinPred.Binary(JoinPred.Binary.Op.CEQ, left, right);
+        }
+    
+        public <T extends Comparable<? super T>> JoinPred cneq(JoinExpr<T> left, JoinExpr<T> right) {
+            return new JoinPred.Binary(JoinPred.Binary.Op.CNEQ, left, right);
         }
     
         public <T extends Comparable<? super T>> JoinPred gt(JoinExpr<T> left, JoinExpr<T> right) {
@@ -433,6 +444,7 @@ public class JoinAPI {
         }
     
         public JoinPred not(JoinPred predicate) {
+            Objects.requireNonNull(predicate);
             return new JoinPred.Not(predicate);
         }
     
@@ -444,15 +456,18 @@ public class JoinAPI {
             return new JoinPred.AnyAll(false, List.of(predicates));
         }
         
-        public JoinPred lmatch(Predicate<? super Record> predicate) {
+        public JoinPred leftMatch(Predicate<? super Record> predicate) {
+            Objects.requireNonNull(predicate);
             return new JoinPred.SideMatch(true, predicate);
         }
         
-        public JoinPred rmatch(Predicate<? super Record> predicate) {
+        public JoinPred rightMatch(Predicate<? super Record> predicate) {
+            Objects.requireNonNull(predicate);
             return new JoinPred.SideMatch(false, predicate);
         }
         
         public JoinPred match(BiPredicate<? super Record, ? super Record> predicate) {
+            Objects.requireNonNull(predicate);
             return new JoinPred.Match(predicate);
         }
     
@@ -462,53 +477,75 @@ public class JoinAPI {
 //        }
     }
     
+    private abstract static class Mapper {
+        abstract void accept(Record left, Record right, Object[] arr);
+    }
+    
     public class Select {
         private final Map<Field<?>, Integer> indexByField = new HashMap<>();
         private final List<Object> definitions = new ArrayList<>();
         
         Select() {} // Prevent default public constructor
-        
-        public Select lall() {
-            for (Field<?> field : left.header.fields)
-                lField(field);
-            return this;
-        }
     
-        public Select rall() {
-            for (Field<?> field : right.header.fields)
-                rField(field);
-            return this;
-        }
-    
-        public Select lallExcept(Field<?>... excluded) {
-            Set<Field<?>> excludedSet = Set.of(excluded);
-            for (Field<?> field : left.header.fields)
-                if (!excludedSet.contains(field))
-                    lField(field);
-            return this;
-        }
-    
-        public Select rallExcept(Field<?>... excluded) {
-            Set<Field<?>> excludedSet = Set.of(excluded);
-            for (Field<?> field : right.header.fields)
-                if (!excludedSet.contains(field))
-                    rField(field);
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        public Select leftAllFields() {
+            Field<?>[] fields = left.header.fields;
+            for (int i = 0; i < fields.length; i++) {
+                FieldPin pin = new FieldPin(fields[i], i);
+                field((Field) fields[i], (lt, rt) -> lt.get(pin));
+            }
             return this;
         }
     
         @SuppressWarnings({"unchecked", "rawtypes"})
-        public Select lField(Field<?> field) {
-            FieldPin pin = new FieldPin(field, left.header.indexOf(field));
+        public Select rightAllFields() {
+            Field<?>[] fields = right.header.fields;
+            for (int i = 0; i < fields.length; i++) {
+                FieldPin pin = new FieldPin(fields[i], i);
+                field((Field) fields[i], (lt, rt) -> rt.get(pin));
+            }
+            return this;
+        }
+    
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        public Select leftAllFieldsExcept(Field<?>... excluded) {
+            Set<Field<?>> excludedSet = Set.of(excluded);
+            Field<?>[] fields = left.header.fields;
+            for (int i = 0; i < fields.length; i++)
+                if (!excludedSet.contains(fields[i])) {
+                    FieldPin pin = new FieldPin(fields[i], i);
+                    field((Field) fields[i], (lt, rt) -> lt.get(pin));
+                }
+            return this;
+        }
+    
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        public Select rightAllFieldsExcept(Field<?>... excluded) {
+            Set<Field<?>> excludedSet = Set.of(excluded);
+            Field<?>[] fields = right.header.fields;
+            for (int i = 0; i < fields.length; i++)
+                if (!excludedSet.contains(fields[i])) {
+                    FieldPin pin = new FieldPin(fields[i], i);
+                    field((Field) fields[i], (lt, rt) -> rt.get(pin));
+                }
+            return this;
+        }
+    
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        public Select leftField(Field<?> field) {
+            FieldPin pin = left.header.pin(field);
             return field((Field) field, (lt, rt) -> lt.get(pin));
         }
     
         @SuppressWarnings({"unchecked", "rawtypes"})
-        public Select rField(Field<?> field) {
-            FieldPin pin = new FieldPin(field, right.header.indexOf(field));
+        public Select rightField(Field<?> field) {
+            FieldPin pin = right.header.pin(field);
             return field((Field) field, (lt, rt) -> rt.get(pin));
         }
         
         public <T> Select field(Field<T> field, BiFunction<? super Record, ? super Record, ? extends T> mapper) {
+            Objects.requireNonNull(field);
+            Objects.requireNonNull(mapper);
             int index = indexByField.computeIfAbsent(field, k -> definitions.size());
             RecordMapper def = new RecordMapper(index, mapper);
             if (index == definitions.size())
@@ -518,27 +555,24 @@ public class JoinAPI {
             return this;
         }
         
-        public Select lFields(Field<?>... fields) {
+        public Select leftFields(Field<?>... fields) {
             for (Field<?> field : fields)
-                lField(field);
+                leftField(field);
             return this;
         }
         
-        public Select rFields(Field<?>... fields) {
+        public Select rightFields(Field<?>... fields) {
             for (Field<?> field : fields)
-                rField(field);
+                rightField(field);
             return this;
         }
         
         public <T> Select fields(BiFunction<? super Record, ? super Record, ? extends T> mapper, Consumer<Fields<T>> config) {
+            Objects.requireNonNull(mapper);
             config.accept(new Fields<>(mapper));
             return this;
         }
         
-        private abstract class Mapper {
-            abstract void accept(Record left, Record right, Object[] arr);
-        }
-    
         private class RecordMapper extends Mapper {
             final int index;
             final BiFunction<? super Record, ? super Record, ?> mapper;
@@ -563,6 +597,8 @@ public class JoinAPI {
             }
     
             public <U> Fields<T> field(Field<U> field, Function<? super T, ? extends U> mapper) {
+                Objects.requireNonNull(field);
+                Objects.requireNonNull(mapper);
                 int index = indexByField.computeIfAbsent(field, k -> definitions.size());
                 ObjectMapper def = new ObjectMapper(index, mapper);
                 if (index == definitions.size())

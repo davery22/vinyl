@@ -9,7 +9,7 @@ import java.util.stream.IntStream;
 import static java.util.stream.Collectors.summarizingInt;
 import static java.util.stream.Collectors.summingInt;
 
-public class RecordSetStreamTest {
+public class RecordStreamTest {
     private static final Field<Integer> FIELD_A = new Field<>("A");
     private static final Field<Integer> FIELD_B = new Field<>("B");
     private static final Field<Integer> FIELD_C = new Field<>("C");
@@ -27,7 +27,7 @@ public class RecordSetStreamTest {
                 .field(FIELD_D, i -> i + 3)
             )
             .select(select -> select
-                .allExcept(FIELD_D)
+                .allFieldsExcept(FIELD_D)
                 .field(FIELD_C, FIELD_D::get)
             );
         FieldPin<Integer> pinB = stream.header().pin(FIELD_B);

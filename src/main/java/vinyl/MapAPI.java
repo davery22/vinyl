@@ -13,6 +13,8 @@ public class MapAPI<T> {
     MapAPI() {} // Prevent default public constructor
     
     public <U> MapAPI<T> field(Field<U> field, Function<? super T, ? extends U> mapper) {
+        Objects.requireNonNull(field);
+        Objects.requireNonNull(mapper);
         int index = indexByField.computeIfAbsent(field, k -> definitions.size());
         FieldMapper<T> def = new FieldMapper<>(index, mapper);
         if (index == definitions.size())

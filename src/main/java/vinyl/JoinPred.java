@@ -8,7 +8,7 @@ import java.util.stream.Stream;
 public class JoinPred {
     JoinPred() {} // Prevent default public constructor
     
-    // TODO: Temporary kludge used by AnyAll
+    // Temporary(?) kludge used by AnyAll
     BiPredicate<? super Record, ? super Record> toPredicate() {
         throw new UnsupportedOperationException();
     }
@@ -43,6 +43,18 @@ public class JoinPred {
                     return !Objects.equals(a, b);
                 }
             },
+            CEQ {
+                @Override
+                boolean test(Object a, Object b) {
+                    return Utils.DEFAULT_COMPARATOR.compare(a, b) == 0;
+                }
+            },
+            CNEQ {
+                @Override
+                boolean test(Object a, Object b) {
+                    return Utils.DEFAULT_COMPARATOR.compare(a, b) != 0;
+                }
+            },
             GT {
                 @Override
                 boolean test(Object a, Object b) {
@@ -73,6 +85,8 @@ public class JoinPred {
                 switch (this) {
                     case EQ: return NEQ;
                     case NEQ: return EQ;
+                    case CEQ: return CNEQ;
+                    case CNEQ: return CEQ;
                     case GT: return LTE;
                     case GTE: return LT;
                     case LT: return GTE;
@@ -90,8 +104,8 @@ public class JoinPred {
         
         Binary(Op op, JoinExpr<?> left, JoinExpr<?> right) {
             this.op = op;
-            this.left = left;
-            this.right = right;
+            this.left = Objects.requireNonNull(left);
+            this.right = Objects.requireNonNull(right);
         }
     
         void accept(Visitor visitor) {
@@ -297,7 +311,7 @@ public class JoinPred {
                         // Entire right side is matched.
                         Record[] rightSide;
                         try (RecordStream ds = rStream) {
-                            // TODO: Only converting because JoinAPI expects FlaggedRecords during right/full joins.
+                            // NOTE: Only converting because JoinAPI expects FlaggedRecords during right/full joins.
                             Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
                             rightSide = s.toArray(Record[]::new);
                         }
@@ -341,6 +355,18 @@ public class JoinPred {
                     break;
                 }
                 case 3: /* BOTH */ {
+                    abstract class MapIndex<M extends Map<Object, List<Record>>> implements JoinAPI.Index {
+                        final M indexedRight;
+                        
+                        MapIndex(M indexedRight) {
+                            this.indexedRight = indexedRight;
+                        }
+                        
+                        @Override
+                        public Stream<Record> unmatchedRight() {
+                            return unmatchedRecords(indexedRight.values().stream().flatMap(Collection::stream));
+                        }
+                    }
                     Function<? super Record, ?> leftMapper;
                     Function<? super Record, ?> rightMapper;
                     if (pred.left.side == JoinAPI.LEFT) {
@@ -351,104 +377,86 @@ public class JoinPred {
                         leftMapper = ((JoinExpr.RecordExpr<?>) pred.right).mapper;
                         rightMapper = ((JoinExpr.RecordExpr<?>) pred.left).mapper;
                     }
-                    if (pred.op == Binary.Op.EQ || pred.op == Binary.Op.NEQ) {
-                        Map<Object, List<Record>> indexedRight;
-                        try (RecordStream ds = rStream) {
-                            Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
-                            indexedRight = s.collect(Collectors.groupingBy(rightMapper));
-                        }
-                        if (pred.op == Binary.Op.EQ) {
-                            output = new JoinAPI.Index() {
-                                @Override
-                                public Stream<Record> unmatchedRight() {
-                                    return unjoinedRecords(indexedRight.values().stream().flatMap(Collection::stream));
-                                }
-                                
-                                @Override
-                                public void search(Record left, Consumer<Record> rx) {
-                                    Object leftVal = leftMapper.apply(left);
-                                    List<Record> records = indexedRight.get(leftVal);
-                                    if (records != null)
-                                        for (Record record : records)
-                                            rx.accept(record);
-                                }
-                            };
-                        }
-                        else { // NEQ
-                            output = new JoinAPI.Index() {
-                                @Override
-                                public Stream<Record> unmatchedRight() {
-                                    return unjoinedRecords(indexedRight.values().stream().flatMap(Collection::stream));
-                                }
-                                
-                                @Override
-                                public void search(Record left, Consumer<Record> rx) {
-                                    Object leftVal = leftMapper.apply(left);
-                                    indexedRight.forEach((rightVal, records) -> {
-                                        if (!Objects.equals(leftVal, rightVal))
-                                            for (Record record : records)
-                                                rx.accept(record);
-                                    });
-                                }
-                            };
-                        }
-                    }
-                    else {
-                        // We interpret the operator as <left> <op> <right>, so if the actual
-                        // sides are reversed, we negate the operator to handle correctly.
-                        Binary.Op op = pred.left.side == JoinAPI.LEFT ? pred.op : pred.op.negate();
-                        boolean inclusive = op == Binary.Op.GTE || pred.op == Binary.Op.LTE;
-                        TreeMap<Object, List<Record>> indexedRight;
-                        try (RecordStream ds = rStream) {
-                            Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
-                            indexedRight = s.collect(Collectors.groupingBy(rightMapper, () -> new TreeMap<>(Utils.DEFAULT_COMPARATOR), Collectors.toList()));
-                        }
-                        abstract class TreeIndex implements JoinAPI.Index {
-                            @Override
-                            public Stream<Record> unmatchedRight() {
-                                return unjoinedRecords(indexedRight.values().stream().flatMap(Collection::stream));
+                    switch (pred.op) {
+                        case EQ: case NEQ: case CEQ: case CNEQ: {
+                            Supplier<Map<Object, List<Record>>> mapFactory =
+                                pred.op == Binary.Op.CEQ || pred.op == Binary.Op.CNEQ
+                                    ? () -> new TreeMap<>(Utils.DEFAULT_COMPARATOR)
+                                    : HashMap::new;
+                            Map<Object, List<Record>> indexedRight;
+                            try (RecordStream ds = rStream) {
+                                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
+                                indexedRight = s.collect(Collectors.groupingBy(rightMapper, mapFactory, Collectors.toList()));
                             }
-                        }
-                        switch (op) {
-                            case GT:
-                            case GTE: {
-                                output = new TreeIndex() {
+                            if (pred.op == Binary.Op.EQ || pred.op == Binary.Op.CEQ) {
+                                output = new MapIndex<>(indexedRight) {
                                     @Override
                                     public void search(Record left, Consumer<Record> rx) {
                                         Object leftVal = leftMapper.apply(left);
-                                        indexedRight.headMap(leftVal, inclusive).forEach((v, records) -> {
+                                        List<Record> records = indexedRight.get(leftVal);
+                                        if (records != null)
                                             for (Record record : records)
                                                 rx.accept(record);
-                                        });
                                     }
                                 };
-                                break;
                             }
-                            case LT:
-                            case LTE: {
-                                output = new TreeIndex() {
+                            else { // NEQ, CNEQ
+                                Binary.Op op = pred.op;
+                                output = new MapIndex<>(indexedRight) {
                                     @Override
                                     public void search(Record left, Consumer<Record> rx) {
                                         Object leftVal = leftMapper.apply(left);
-                                        indexedRight.tailMap(leftVal, inclusive).forEach((v, records) -> {
-                                            for (Record record : records)
-                                                rx.accept(record);
+                                        indexedRight.forEach((rightVal, records) -> {
+                                            if (op.test(leftVal, rightVal))
+                                                for (Record record : records)
+                                                    rx.accept(record);
                                         });
                                     }
                                 };
-                                break;
                             }
-                            default: {
-                                throw new AssertionError(); // unreachable
-                            }
+                            break;
                         }
-                    }
-                    break;
+                        default: {
+                            // We interpret the operator as <left> <op> <right>, so if the actual
+                            // sides are reversed, we negate the operator to handle correctly.
+                            Binary.Op op = (pred.left.side == JoinAPI.LEFT) ? pred.op : pred.op.negate();
+                            boolean inclusive = op == Binary.Op.GTE || op == Binary.Op.LTE;
+                            TreeMap<Object, List<Record>> indexedRight;
+                            try (RecordStream ds = rStream) {
+                                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
+                                indexedRight = s.collect(Collectors.groupingBy(rightMapper, () -> new TreeMap<>(Utils.DEFAULT_COMPARATOR), Collectors.toList()));
+                            }
+                            switch (op) {
+                                case GT: case GTE: {
+                                    output = new MapIndex<>(indexedRight) {
+                                        @Override
+                                        public void search(Record left, Consumer<Record> rx) {
+                                            Object leftVal = leftMapper.apply(left);
+                                            indexedRight.headMap(leftVal, inclusive).forEach((v, records) -> {
+                                                for (Record record : records)
+                                                    rx.accept(record);
+                                            });
+                                        }
+                                    };
+                                    break;
+                                }
+                                case LT: case LTE: {
+                                    output = new MapIndex<>(indexedRight) {
+                                        @Override
+                                        public void search(Record left, Consumer<Record> rx) {
+                                            Object leftVal = leftMapper.apply(left);
+                                            indexedRight.tailMap(leftVal, inclusive).forEach((v, records) -> {
+                                                for (Record record : records)
+                                                    rx.accept(record);
+                                            });
+                                        }
+                                    };
+                                }
+                            } // end inner op switch
+                        }
+                    } // end outer op switch
                 }
-                default: {
-                    throw new AssertionError(); // unreachable
-                }
-            }
+            } // end side switch
         }
     
         @Override
@@ -463,7 +471,7 @@ public class JoinPred {
             output = new JoinAPI.Index() {
                 @Override
                 public Stream<Record> unmatchedRight() {
-                    return unjoinedRecords(Arrays.stream(rightSide));
+                    return unmatchedRecords(Arrays.stream(rightSide));
                 }
         
                 @Override
@@ -494,7 +502,7 @@ public class JoinPred {
             output = new JoinAPI.Index() {
                 @Override
                 public Stream<Record> unmatchedRight() {
-                    return unjoinedRecords(Arrays.stream(rightSide));
+                    return unmatchedRecords(Arrays.stream(rightSide));
                 }
     
                 @Override
@@ -515,7 +523,7 @@ public class JoinPred {
             output = new JoinAPI.Index() {
                 @Override
                 public Stream<Record> unmatchedRight() {
-                    return unjoinedRecords(Arrays.stream(rightSide));
+                    return unmatchedRecords(Arrays.stream(rightSide));
                 }
         
                 @Override
@@ -532,7 +540,7 @@ public class JoinPred {
             List<Record> retainedRight;
             try (RecordStream ds = rStream) {
                 if (retainUnmatchedRight) {
-                    // TODO: Only converting because JoinAPI expects FlaggedRecords during right/full joins.
+                    // NOTE: Only converting because JoinAPI expects FlaggedRecords during right/full joins.
                     Map<Boolean, List<Record>> partition = ds.stream
                         .map(JoinAPI.FlaggedRecord::new)
                         .collect(Collectors.partitioningBy(predicate));
@@ -547,7 +555,7 @@ public class JoinPred {
             output = new JoinAPI.Index() {
                 @Override
                 public Stream<Record> unmatchedRight() {
-                    return unjoinedRecords(Stream.concat(rightSide.stream(), retainedRight.stream()));
+                    return unmatchedRecords(Stream.concat(rightSide.stream(), retainedRight.stream()));
                 }
         
                 @Override
@@ -558,9 +566,9 @@ public class JoinPred {
             };
         }
         
-        private static Stream<Record> unjoinedRecords(Stream<Record> stream) {
+        private static Stream<Record> unmatchedRecords(Stream<Record> stream) {
             Stream<JoinAPI.FlaggedRecord> s = Utils.cast(stream);
-            return s.filter(record -> !record.isJoined).map(record -> record.record);
+            return s.filter(record -> !record.isMatched).map(record -> record.record);
         }
         
         private static Predicate<? super Record> singleSidePredicate(Binary pred) {

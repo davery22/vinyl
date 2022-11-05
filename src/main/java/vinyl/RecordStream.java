@@ -149,32 +149,45 @@ public class RecordStream implements Stream<Record> {
         return new AuxDouble(stream.flatMapToDouble(mapper));
     }
     
-    @Override
-    public RecordStream distinct() {
-        class HeadlessEq {
-            final Record record;
-            
-            HeadlessEq(Record record) {
-                this.record = record;
-            }
-            
-            @Override
-            public boolean equals(Object o) {
-                return Arrays.equals(record.values, ((HeadlessEq) o).record.values);
-            }
-            
-            @Override
-            public int hashCode() {
-                return Arrays.hashCode(record.values);
-            }
+    private static class HeadlessEq {
+        final Record record;
+        
+        HeadlessEq(Record record) {
+            this.record = record;
         }
         
-        return new RecordStream(header, stream.map(HeadlessEq::new).distinct().map(h -> h.record));
+        @Override
+        public boolean equals(Object o) {
+            return Arrays.equals(record.values, ((HeadlessEq) o).record.values);
+        }
+        
+        @Override
+        public int hashCode() {
+            return Arrays.hashCode(record.values);
+        }
     }
     
     @Override
+    public RecordStream distinct() {
+        return new RecordStream(header, stream.map(HeadlessEq::new).distinct().map(h -> h.record));
+    }
+    
+    /**
+     * Only safe when Records have the same Header and all Fields are Comparable.
+     */
+    static final Comparator<Record> HEADLESS_RECORD_COMPARATOR = (a, b) -> {
+        for (int i = 0; i < a.values.length; i++) {
+            int v = Utils.DEFAULT_COMPARATOR.compare(a.values[i], b.values[i]);
+            if (v != 0) {
+                return v;
+            }
+        }
+        return 0;
+    };
+    
+    @Override
     public RecordStream sorted() {
-        return new RecordStream(header, stream.sorted(Utils.HEADLESS_RECORD_COMPARATOR));
+        return new RecordStream(header, stream.sorted(HEADLESS_RECORD_COMPARATOR));
     }
     
     @Override

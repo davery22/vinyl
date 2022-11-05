@@ -18,27 +18,37 @@ public class SelectAPI {
         this.stream = stream;
     }
     
-    public SelectAPI all() {
-        for (Field<?> field : stream.header.fields)
-            field(field);
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public SelectAPI allFields() {
+        Field<?>[] fields = stream.header.fields;
+        for (int i = 0; i < fields.length; i++) {
+            FieldPin pin = new FieldPin(fields[i], i);
+            field((Field) fields[i], record -> record.get(pin));
+        }
         return this;
     }
     
-    public SelectAPI allExcept(Field<?>... excluded) {
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public SelectAPI allFieldsExcept(Field<?>... excluded) {
         Set<Field<?>> excludedSet = Set.of(excluded);
-        for (Field<?> field : stream.header.fields)
-            if (!excludedSet.contains(field))
-                field(field);
+        Field<?>[] fields = stream.header.fields;
+        for (int i = 0; i < fields.length; i++)
+            if (!excludedSet.contains(fields[i])) {
+                FieldPin pin = new FieldPin(fields[i], i);
+                field((Field) fields[i], record -> record.get(pin));
+            }
         return this;
     }
     
     @SuppressWarnings({"unchecked", "rawtypes"})
     public SelectAPI field(Field<?> field) {
-        FieldPin pin = new FieldPin(field, stream.header.indexOf(field));
+        FieldPin pin = stream.header.pin(field);
         return field((Field) field, record -> record.get(pin));
     }
     
     public <T> SelectAPI field(Field<T> field, Function<? super Record, ? extends T> mapper) {
+        Objects.requireNonNull(field);
+        Objects.requireNonNull(mapper);
         int index = indexByField.computeIfAbsent(field, k -> definitions.size());
         RecordMapper def = new RecordMapper(index, mapper);
         if (index == definitions.size())
@@ -55,6 +65,7 @@ public class SelectAPI {
     }
     
     public <T> SelectAPI fields(Function<? super Record, ? extends T> mapper, Consumer<Fields<T>> config) {
+        Objects.requireNonNull(mapper);
         config.accept(new Fields<>(mapper));
         return this;
     }
@@ -114,7 +125,7 @@ public class SelectAPI {
                     Object[] arr = record.next;
                     for (Mapper mapper : finalMappers)
                         mapper.accept(record, arr);
-                    return new Record(nextHeader, record.next);
+                    return new Record(nextHeader, arr);
                 });
         }
         
@@ -129,7 +140,7 @@ public class SelectAPI {
             // Copying keyMapperChildren to array also acts as a defensive copy against bad-actor user code.
             // There is no need to do the same for windowFnChildren (used in Window::accept), as they can only be added
             // by trusted code.
-            Function<Record, List<?>> classifier = classifierFor(window.keyMapperChildren.toArray(new Window.KeyMapper[0]), window.keyCount);
+            Function<Record, List<?>> classifier = classifierFor(window.keyMapperChildren.toArray(new Mapper[0]), window.keyCount);
             Collector<LinkedRecord, ?, Map<List<?>, List<LinkedRecord>>> collector = Collectors.groupingBy(classifier, Collectors.toList());
             Stream<LinkedRecord> prev = curr;
             curr = StreamSupport.stream(
@@ -146,10 +157,10 @@ public class SelectAPI {
         return curr.onClose(stream::close);
     }
     
-    private Function<Record, List<?>> classifierFor(Window.KeyMapper[] mappers, int keysSize) {
+    private Function<Record, List<?>> classifierFor(Mapper[] mappers, int keysSize) {
         return record -> {
             Object[] arr = new Object[keysSize];
-            for (Window.KeyMapper mapper : mappers)
+            for (Mapper mapper : mappers)
                 mapper.accept(record, arr);
             return Arrays.asList(arr); // convert to List for equals/hashCode
         };
@@ -157,6 +168,10 @@ public class SelectAPI {
     
     private abstract static class Mapper {
         abstract void accept(Record record, Object[] arr);
+    }
+    
+    private abstract static class WindowFunction {
+        abstract void accept(List<LinkedRecord> records);
     }
     
     private static class RecordMapper extends Mapper {
@@ -183,6 +198,8 @@ public class SelectAPI {
         }
         
         public <U> Fields<T> field(Field<U> field, Function<? super T, ? extends U> mapper) {
+            Objects.requireNonNull(field);
+            Objects.requireNonNull(mapper);
             int index = indexByField.computeIfAbsent(field, k -> definitions.size());
             ObjectMapper def = new ObjectMapper(index, mapper);
             if (index == definitions.size())
@@ -220,7 +237,7 @@ public class SelectAPI {
     }
     
     public class Window {
-        final List<KeyMapper> keyMapperChildren = new ArrayList<>();
+        final List<Mapper> keyMapperChildren = new ArrayList<>();
         final List<WindowFunction> windowFnChildren = new ArrayList<>();
         int keyCount = 0;
         
@@ -228,13 +245,14 @@ public class SelectAPI {
         
         @SuppressWarnings({"unchecked", "rawtypes"})
         public Window key(Field<?> field) {
-            FieldPin pin = new FieldPin(field, stream.header.indexOf(field));
-            return key(pin::get);
+            FieldPin pin = stream.header.pin(field);
+            return key(record -> record.get(pin));
         }
     
         public Window key(Function<? super Record, ?> mapper) {
             // Since all keys are temps and cannot be overridden, can bypass definitions and indexByField,
             // and just add to parent right away. This simplifies much.
+            Objects.requireNonNull(mapper);
             new KeyRecordMapper(keyCount++, mapper).addToParent();
             return this;
         }
@@ -247,6 +265,8 @@ public class SelectAPI {
         public <T> Window field(Field<T> field,
                                 Comparator<? super Record> comparator,
                                 BiConsumer<? super List<Record>, ? super Consumer<T>> mapper) {
+            Objects.requireNonNull(field);
+            Objects.requireNonNull(mapper);
             int index = indexByField.computeIfAbsent(field, k -> definitions.size());
             FieldRecordMapper<T> def = new FieldRecordMapper<>(index, comparator, mapper);
             if (index == definitions.size())
@@ -264,12 +284,14 @@ public class SelectAPI {
         
         public <T> Window keys(Function<? super Record, ? extends T> mapper,
                                Consumer<Window.Keys<T>> config) {
+            Objects.requireNonNull(mapper);
             config.accept(new Window.Keys<>(mapper));
             return this;
         }
         
         public <T> Window fields(Function<? super List<Record>, ? extends T> mapper,
                                  Consumer<Fields<T>> config) {
+            Objects.requireNonNull(mapper);
             config.accept(new Fields<>(null, mapper));
             return this;
         }
@@ -283,24 +305,18 @@ public class SelectAPI {
         public <T> Window fields(Comparator<? super Record> comparator,
                                  Function<? super List<Record>, ? extends T> mapper,
                                  Consumer<Fields<T>> config) {
+            Objects.requireNonNull(mapper);
             config.accept(new Fields<>(comparator, mapper));
             return this;
         }
         
         void accept(List<LinkedRecord> records) {
-            // TODO: Process unordered window functions first (preserve original encounter order).
+            // TODO: Process unordered window functions first? (to preserve original encounter order)
+            //  But encounter order would still be undefined so long as we feed window results into each other.
             windowFnChildren.forEach(child -> child.accept(records));
         }
         
-        private abstract class KeyMapper {
-            abstract void accept(Record record, Object[] arr);
-        }
-        
-        private abstract class WindowFunction {
-            abstract void accept(List<LinkedRecord> records);
-        }
-        
-        private class KeyRecordMapper extends KeyMapper {
+        private class KeyRecordMapper extends Mapper {
             final Function<? super Record, ?> mapper;
             final int localIndex;
             
@@ -363,7 +379,7 @@ public class SelectAPI {
             }
         }
     
-        public class Keys<T> extends KeyMapper {
+        public class Keys<T> extends Mapper {
             final Function<? super Record, ? extends T> mapper;
             final List<KeyObjectMapper> children = new ArrayList<>();
             
@@ -374,6 +390,7 @@ public class SelectAPI {
             public Keys<T> key(Function<? super T, ?> mapper) {
                 // Since all keys are temps and cannot be overridden, can bypass definitions and indexByField,
                 // and just add to parent right away. This simplifies much.
+                Objects.requireNonNull(mapper);
                 new KeyObjectMapper(keyCount++, mapper).addToParent();
                 return this;
             }
@@ -423,6 +440,8 @@ public class SelectAPI {
             
             public <U> Fields<T> field(Field<U> field,
                                        BiConsumer<? super T, ? super Consumer<U>> mapper) {
+                Objects.requireNonNull(field);
+                Objects.requireNonNull(mapper);
                 int index = indexByField.computeIfAbsent(field, k -> definitions.size());
                 FieldObjectMapper<U> def = new FieldObjectMapper<>(index, mapper);
                 if (index == definitions.size())

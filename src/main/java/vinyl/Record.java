@@ -3,6 +3,7 @@ package vinyl;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 public class Record {
     final Header header;
@@ -24,15 +25,20 @@ public class Record {
     @SuppressWarnings("unchecked")
     public <T> T get(Field<T> field) {
         int index = header.indexOf(field);
+        if (index == -1)
+            throw new NoSuchElementException("Invalid field: " + field);
         return (T) values[index];
     }
     
     @SuppressWarnings("unchecked")
     public <T> T get(FieldPin<T> pin) {
-        // Throws AIOOBE
-        if (header.fields[pin.index] != pin.field)
-            throw new IllegalArgumentException("Invalid field pin: " + pin);
-        return (T) values[pin.index];
+        try {
+            if (header.fields[pin.index] == pin.field)
+                return (T) values[pin.index];
+        } catch (ArrayIndexOutOfBoundsException e) {
+            // Fall-through
+        }
+        throw new NoSuchElementException("Invalid field pin: " + pin);
     }
     
     @Override

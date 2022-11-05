@@ -21,26 +21,25 @@ public class AggregateAPI {
     
     @SuppressWarnings({"unchecked", "rawtypes"})
     public AggregateAPI key(Field<?> field) {
-        FieldPin pin = new FieldPin(field, stream.header.indexOf(field));
+        FieldPin pin = stream.header.pin(field);
         return keyHelper(true, tempField(), record -> record.get(pin));
     }
     
     public AggregateAPI key(Function<? super Record, ?> mapper) {
+        Objects.requireNonNull(mapper);
         return keyHelper(true, tempField(), mapper);
     }
     
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public AggregateAPI keyField(Field<?> field) {
-        return keyHelper(false, field);
+        FieldPin pin = stream.header.pin(field);
+        return keyHelper(false, field, record -> record.get(pin));
     }
     
     public <T> AggregateAPI keyField(Field<T> field, Function<? super Record, ? extends T> mapper) {
+        Objects.requireNonNull(field);
+        Objects.requireNonNull(mapper);
         return keyHelper(false, field, mapper);
-    }
-    
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    private AggregateAPI keyHelper(boolean isTemp, Field<?> field) {
-        FieldPin pin = new FieldPin(field, stream.header.indexOf(field));
-        return keyHelper(isTemp, field, record -> record.get(pin));
     }
     
     private <T> AggregateAPI keyHelper(boolean isTemp, Field<?> field, Function<? super Record, ? extends T> mapper) {
@@ -54,6 +53,8 @@ public class AggregateAPI {
     }
     
     public <T, A> AggregateAPI aggField(Field<T> field, Collector<? super Record, A, ? extends T> collector) {
+        Objects.requireNonNull(field);
+        Objects.requireNonNull(collector);
         int index = indexByField.computeIfAbsent(field, k -> definitions.size());
         AggRecordCollector def = new AggRecordCollector(field, collector);
         if (index == definitions.size())
@@ -76,11 +77,13 @@ public class AggregateAPI {
     }
     
     public <T> AggregateAPI keys(Function<? super Record, ? extends T> mapper, Consumer<Keys<T>> config) {
+        Objects.requireNonNull(mapper);
         config.accept(new Keys<>(mapper));
         return this;
     }
     
     public <T> AggregateAPI aggs(Collector<? super Record, ?, ? extends T> collector, Consumer<Aggs<T>> config) {
+        Objects.requireNonNull(collector);
         config.accept(new Aggs<>(collector));
         return this;
     }
@@ -102,7 +105,6 @@ public class AggregateAPI {
         List<Integer> aggIndexes = new ArrayList<>();
         List<Mapper> finalMappers = new ArrayList<>();
         List<CollectorBox> finalCollectors = new ArrayList<>();
-        Set<Object> seenParents = new HashSet<>();
         boolean hasTempKeys = false;
         
         // i: original index, j: adjusted index (after removing temps)
@@ -128,9 +130,9 @@ public class AggregateAPI {
                 indexByField.put(def.field, j++);
             } else if (definition instanceof Keys.KeyObjectMapper) {
                 Keys<?>.KeyObjectMapper def = (Keys<?>.KeyObjectMapper) definition;
-                def.addToParent();
-                if (seenParents.add(def.parent()))
-                    finalMappers.add(def.parent());
+                Keys<?> parent = def.addToParent();
+                if (parent != null)
+                    finalMappers.add(parent);
                 def.localIndex = keyIndexes.size();
                 if (def.isTemp) {
                     hasTempKeys = true;
@@ -143,9 +145,9 @@ public class AggregateAPI {
             } else {
                 assert definition instanceof Aggs.AggObjectMapper;
                 Aggs<?>.AggObjectMapper def = (Aggs<?>.AggObjectMapper) definition;
-                def.addToParent();
-                if (seenParents.add(def.parent()))
-                    finalCollectors.add(def.parent());
+                Aggs<?> parent = def.addToParent();
+                if (parent != null)
+                    finalCollectors.add(parent);
                 def.localIndex = aggIndexes.size();
                 aggIndexes.add(j);
                 indexByField.put(def.field, j++);
@@ -157,8 +159,13 @@ public class AggregateAPI {
         Header nextHeader = new Header(new HashMap<>(indexByField));
         Collector<Record, ?, List<?>> downstream = collectorFor(finalCollectors, aggIndexes.size());
         Stream<Record> nextStream;
+        
+        // TODO: Optimize special cases:
+        //  1. (DONE) No keys
+        //  2. One key
+        //  3. No aggs
+        //  4. One agg
     
-        // Optimization: Inline and simplify lazyCollect() + mapToDataset(), since this is trusted code.
         // Optimization: Skip grouping if there are no keys.
         if (keyIndexes.isEmpty()) {
             nextStream = lazyCollectingStream(downstream)
@@ -200,6 +207,7 @@ public class AggregateAPI {
     }
     
     private <T> Stream<T> lazyCollectingStream(Collector<Record, ?, T> collector) {
+        // Chain a no-op, so that the stream will throw if re-used after this call.
         Stream<Record> s = stream.stream.peek(it -> {});
         return StreamSupport.stream(
             () -> Collections.singleton(s.collect(collector)).spliterator(),
@@ -316,14 +324,13 @@ public class AggregateAPI {
         }
     
         public Keys<T> key(Function<? super T, ?> mapper) {
+            Objects.requireNonNull(mapper);
             return keyHelper(true, tempField(), mapper);
         }
         
-        public Keys<T> key(Field<?> field, Function<? super T, ?> mapper) {
-            return keyHelper(true, field, mapper);
-        }
-        
         public <U> Keys<T> keyField(Field<U> field, Function<? super T, ? extends U> mapper) {
+            Objects.requireNonNull(field);
+            Objects.requireNonNull(mapper);
             return keyHelper(false, field, mapper);
         }
         
@@ -359,12 +366,10 @@ public class AggregateAPI {
                 arr[localIndex] = mapper.apply(in);
             }
             
-            void addToParent() {
+            Keys<T> addToParent() {
+                boolean isParentUnseen = Keys.this.children.isEmpty();
                 Keys.this.children.add(this);
-            }
-            
-            Keys<T> parent() {
-                return Keys.this;
+                return isParentUnseen ? Keys.this : null;
             }
         }
     }
@@ -378,6 +383,8 @@ public class AggregateAPI {
         }
         
         public <U> Aggs<T> aggField(Field<U> field, Function<? super T, ? extends U> mapper) {
+            Objects.requireNonNull(field);
+            Objects.requireNonNull(mapper);
             int index = indexByField.computeIfAbsent(field, k -> definitions.size());
             AggObjectMapper def = new AggObjectMapper(field, mapper);
             if (index == definitions.size())
@@ -413,12 +420,10 @@ public class AggregateAPI {
                 arr[localIndex] = mapper.apply(in);
             }
             
-            void addToParent() {
+            Aggs<T> addToParent() {
+                boolean isParentUnseen = Aggs.this.children.isEmpty();
                 Aggs.this.children.add(this);
-            }
-            
-            Aggs<T> parent() {
-                return Aggs.this;
+                return isParentUnseen ? Aggs.this : null;
             }
         }
     }

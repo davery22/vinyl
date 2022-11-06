@@ -1,5 +1,7 @@
 package vinyl;
 
+import vinyl.Record.LinkedRecord;
+
 import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -9,6 +11,16 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
+/**
+ * A configurator used to define a select operation on a {@link RecordStream record-stream}. A select operation maps
+ * input records to output records.
+ *
+ * <p>Fields defined on the configurator (or any sub-configurators) become fields on a resultant {@link Header header}.
+ * The header fields are in order of definition on the configurator(s). A field may be redefined on the configurator(s),
+ * in which case its definition is replaced, but its original position in the header is retained.
+ *
+ * @see RecordStream#select
+ */
 public class SelectAPI {
     private final RecordStream stream;
     private final Map<Field<?>, Integer> indexByField = new HashMap<>();
@@ -18,6 +30,11 @@ public class SelectAPI {
         this.stream = stream;
     }
     
+    /**
+     * Defines (or redefines) each field from the input stream as the lookup of the same field on each input record.
+     *
+     * @return this configurator
+     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public SelectAPI allFields() {
         Field<?>[] fields = stream.header.fields;
@@ -28,6 +45,13 @@ public class SelectAPI {
         return this;
     }
     
+    /**
+     * Defines (or redefines) each field from the input stream, excluding the given excluded fields, as the lookup of
+     * the same field on each input record.
+     *
+     * @param excluded the fields to be excluded
+     * @return this configurator
+     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public SelectAPI allFieldsExcept(Field<?>... excluded) {
         Set<Field<?>> excludedSet = Set.of(excluded);
@@ -40,12 +64,27 @@ public class SelectAPI {
         return this;
     }
     
+    /**
+     * Defines (or redefines) the given field as the lookup of the same field on each input record.
+     *
+     * @param field the field
+     * @return this configurator
+     * @throws NoSuchElementException if the stream header does not contain the given field
+     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public SelectAPI field(Field<?> field) {
         FieldPin pin = stream.header.pin(field);
         return field((Field) field, record -> record.get(pin));
     }
     
+    /**
+     * Defines (or redefines) the given field as the application of the given function to each input record.
+     *
+     * @param field the field
+     * @param mapper a function to apply to each input record
+     * @return this configurator
+     * @param <T> the value type of the field
+     */
     public <T> SelectAPI field(Field<T> field, Function<? super Record, ? extends T> mapper) {
         Objects.requireNonNull(field);
         Objects.requireNonNull(mapper);
@@ -58,18 +97,43 @@ public class SelectAPI {
         return this;
     }
     
+    /**
+     * Defines (or redefines) each of the given fields as the lookup of the same field on each input record.
+     *
+     * @param fields the fields
+     * @return this configurator
+     * @throws NoSuchElementException if the stream header does not contain a given field
+     */
     public SelectAPI fields(Field<?>... fields) {
         for (Field<?> field : fields)
             field(field);
         return this;
     }
     
+    /**
+     * Configures a sub-configurator, that may define (or redefine) fields in terms of the result of applying the given
+     * function to each input record. If no fields are defined by the sub-configurator, possibly due to later field
+     * redefinitions, the entire sub-configurator is discarded.
+     *
+     * @param mapper a function to apply to each input record
+     * @param config a consumer of the sub-configurator
+     * @return this configurator
+     * @param <T> the result type of the function
+     */
     public <T> SelectAPI fields(Function<? super Record, ? extends T> mapper, Consumer<Fields<T>> config) {
         Objects.requireNonNull(mapper);
         config.accept(new Fields<>(mapper));
         return this;
     }
     
+    /**
+     * Configures a sub-configurator, that may define (or redefine) fields as analytical functions over partitions of
+     * the input stream. If no fields are defined by the sub-configurator, possibly due to later field redefinitions,
+     * the entire sub-configurator is discarded.
+     *
+     * @param config a consumer of the sub-configurator
+     * @return this configurator
+     */
     public SelectAPI window(Consumer<Window> config) {
         config.accept(new Window());
         return this;
@@ -122,7 +186,7 @@ public class SelectAPI {
             nextStream = streamWindows(stream.stream.map(record -> new LinkedRecord(record, new Object[size])),
                                        finalWindows)
                 .map(record -> {
-                    Object[] arr = record.next;
+                    Object[] arr = record.out;
                     for (Mapper mapper : finalMappers)
                         mapper.accept(record, arr);
                     return new Record(nextHeader, arr);
@@ -135,7 +199,7 @@ public class SelectAPI {
     private Stream<LinkedRecord> streamWindows(Stream<LinkedRecord> stream, List<Window> windows) {
         Stream<LinkedRecord> curr = stream;
         // Process windows sequentially to minimize memory usage.
-        // TODO: Merge keyless (non-partitioned) windows, and skip groupingBy step for those.
+        // TODO: Merge keyless (non-partitioned) windows, and skip groupingBy step for those (but stay safe for 0-records case).
         for (Window window : windows) {
             // Copying keyMapperChildren to array also acts as a defensive copy against bad-actor user code.
             // There is no need to do the same for windowFnChildren (used in Window::accept), as they can only be added
@@ -189,6 +253,11 @@ public class SelectAPI {
         }
     }
     
+    /**
+     * A sub-configurator used to define fields of a select operation that depend on a common intermediate result.
+     *
+     * @param <T> the intermediate result type
+     */
     public class Fields<T> extends Mapper {
         final Function<? super Record, ? extends T> mapper;
         final List<ObjectMapper> children = new ArrayList<>();
@@ -196,7 +265,16 @@ public class SelectAPI {
         Fields(Function<? super Record, ? extends T> mapper) {
             this.mapper = mapper;
         }
-        
+    
+        /**
+         * Defines (or redefines) the given field as the application of the given function to this sub-configurator's
+         * intermediate result.
+         *
+         * @param field the field
+         * @param mapper a function to apply to this sub-configurator's intermediate result
+         * @return this configurator
+         * @param <U> the value type of the field
+         */
         public <U> Fields<T> field(Field<U> field, Function<? super T, ? extends U> mapper) {
             Objects.requireNonNull(field);
             Objects.requireNonNull(mapper);
@@ -236,19 +314,44 @@ public class SelectAPI {
         }
     }
     
+    /**
+     * A sub-configurator used to define fields of a select operation in terms of analytical functions over partitions
+     * of the input stream.
+     *
+     * <p>A window may define zero or more keys, that together group the input stream into non-overlapping partitions.
+     * Each partition will capture one or more input records, each of which corresponds to exactly one output record.
+     *
+     * <p>A window may define fields as analytical functions. An analytical function is applied per-partition, and emits
+     * one value per input record in the partition, which becomes the value of the field on the corresponding output
+     * record from the partition. Alternatively, an analytical function may emit just one value for the partition, which
+     * becomes the value of the field on all output records from the partition.
+     */
     public class Window {
         final List<Mapper> keyMapperChildren = new ArrayList<>();
         final List<WindowFunction> windowFnChildren = new ArrayList<>();
         int keyCount = 0;
         
         Window() {} // Prevent default public constructor
-        
+    
+        /**
+         * Defines a key as the lookup of the given field on each input record.
+         *
+         * @param field the field
+         * @return this configurator
+         * @throws NoSuchElementException if the stream header does not contain the given field
+         */
         @SuppressWarnings({"unchecked", "rawtypes"})
         public Window key(Field<?> field) {
             FieldPin pin = stream.header.pin(field);
             return key(record -> record.get(pin));
         }
     
+        /**
+         * Defines a key as the application of the given function to each input record.
+         *
+         * @param mapper a function to be applied to each input record
+         * @return this configurator
+         */
         public Window key(Function<? super Record, ?> mapper) {
             // Since all keys are temps and cannot be overridden, can bypass definitions and indexByField,
             // and just add to parent right away. This simplifies much.
@@ -256,19 +359,46 @@ public class SelectAPI {
             new KeyRecordMapper(keyCount++, mapper).addToParent();
             return this;
         }
-        
+    
+        /**
+         * Shorthand for calling {@link #field(Field, Comparator, BiConsumer)}, passing a {@code null} comparator.
+         *
+         * @param field the field
+         * @param mapper an analytical function to be applied to input records in each partition
+         * @return this configurator
+         * @param <T> the value type of the field
+         */
         public <T> Window field(Field<T> field,
                                 BiConsumer<? super List<Record>, ? super Consumer<T>> mapper) {
             return field(field, null, mapper);
         }
     
+        /**
+         * Defines (or redefines) the given field in terms of the given analytical function, applied to input records in
+         * each partition. The function must call the consumer exactly once, or once per record in the partition;
+         * otherwise an {@link IllegalStateException} will be thrown during evaluation. If the consumer is called once,
+         * the value passed to it will be assigned to the field on all output records from the partition. If the
+         * consumer is called multiple times, each value passed to it will be assigned to the field on the next output
+         * record, in ordered correspondence with the input records (as ordered by the given comparator, if any).
+         *
+         * <p>A comparator may be provided to sort input records in the partition prior to applying the analytical
+         * function. Some analytical functions may depend on this for proper ordered correspondence. If the comparator
+         * is {@code null}, input records are left unsorted.
+         *
+         * @param field the field
+         * @param comparator a comparator used to sort the input records in the partition before applying the function.
+         *                   May be {@code null}, in which case input records are left unsorted.
+         * @param mapper an analytical function to be applied to input records in each partition
+         * @return this configurator
+         * @param <T> the value type of the field
+         */
         public <T> Window field(Field<T> field,
                                 Comparator<? super Record> comparator,
                                 BiConsumer<? super List<Record>, ? super Consumer<T>> mapper) {
             Objects.requireNonNull(field);
             Objects.requireNonNull(mapper);
             int index = indexByField.computeIfAbsent(field, k -> definitions.size());
-            FieldRecordMapper<T> def = new FieldRecordMapper<>(index, comparator, mapper);
+            FieldRecordMapper<T> def = new FieldRecordMapper<>(field, index, comparator, mapper);
             if (index == definitions.size())
                 definitions.add(def);
             else
@@ -276,19 +406,43 @@ public class SelectAPI {
             return this;
         }
     
+        /**
+         * Defines keys from each of the given fields, as the lookup of the same field on each input record.
+         *
+         * @param fields the fields
+         * @return this configurator
+         * @throws NoSuchElementException if the stream header does not contain a given field
+         */
         public Window keys(Field<?>... fields) {
             for (Field<?> field : fields)
                 key(field);
             return this;
         }
-        
+    
+        /**
+         * Configures a sub-configurator, that may define keys in terms of the result of applying the given function to
+         * each input record. If no keys are defined by the sub-configurator, the entire sub-configurator is discarded.
+         *
+         * @param mapper a function to be applied to each input record
+         * @param config a consumer of the sub-configurator
+         * @return this configurator
+         * @param <T> the result type of the function
+         */
         public <T> Window keys(Function<? super Record, ? extends T> mapper,
                                Consumer<Window.Keys<T>> config) {
             Objects.requireNonNull(mapper);
             config.accept(new Window.Keys<>(mapper));
             return this;
         }
-        
+    
+        /**
+         * Shorthand for calling {@link #fields(Comparator, Function, Consumer)}, passing a {@code null} comparator.
+         *
+         * @param mapper a function to be applied to input records in each partition
+         * @param config a consumer of the sub-configurator
+         * @return this configurator
+         * @param <T> the result type of the function
+         */
         public <T> Window fields(Function<? super List<Record>, ? extends T> mapper,
                                  Consumer<Fields<T>> config) {
             Objects.requireNonNull(mapper);
@@ -296,12 +450,43 @@ public class SelectAPI {
             return this;
         }
     
-        public <T> Window fields(Comparator<? super Record> comparator,
-                                 Consumer<Fields<List<Record>>> config) {
+        /**
+         * Shorthand for calling {@link #fields(Comparator, Function, Consumer)}, passing an {@link Function#identity()
+         * identity} mapper.
+         *
+         * @param comparator a comparator used to sort the input records in the partition before applying any enclosed
+         *                   analytical functions. May be {@code null}, in which case input records are left unsorted.
+         * @param config a consumer of the sub-configurator
+         * @return this configurator
+         */
+        public Window fields(Comparator<? super Record> comparator,
+                             Consumer<Fields<List<Record>>> config) {
             config.accept(new Fields<>(comparator, Function.identity()));
             return this;
         }
     
+        /**
+         * Configures a sub-configurator, that may define (or redefine) fields in terms of analytical functions that
+         * take as input the result of applying the given function to input records in each partition. Enclosed
+         * analytical functions follow the same "once or once-per-record" emission rules as usual, even if size
+         * information is not preserved by the given function's result.
+         *
+         * <p>A comparator may be provided to sort input records in the partition prior to applying the given function.
+         * Some enclosed analytical functions may depend on this for proper ordered correspondence. If the comparator
+         * is {@code null}, input records are left unsorted.
+         *
+         * <p>If no fields are defined by the sub-configurator, possibly due to later field redefinitions, the entire
+         * sub-configurator is discarded.
+         *
+         * @param comparator a comparator used to sort the input records in the partition before applying the function,
+         *                   or any enclosed analytical functions. May be {@code null}, in which case input records are
+         *                   left unsorted.
+         * @param mapper a function to be applied to input records in each partition
+         * @param config a consumer of the sub-configurator
+         * @return this configurator
+         * @param <T> the result type of the function
+         * @see #field(Field, Comparator, BiConsumer)
+         */
         public <T> Window fields(Comparator<? super Record> comparator,
                                  Function<? super List<Record>, ? extends T> mapper,
                                  Consumer<Fields<T>> config) {
@@ -336,13 +521,16 @@ public class SelectAPI {
         }
         
         private class FieldRecordMapper<T> extends WindowFunction {
+            final Field<T> field;
             final int index;
             final Comparator<? super Record> comparator;
             final BiConsumer<? super List<Record>, ? super Consumer<T>> mapper;
             
-            FieldRecordMapper(int index,
+            FieldRecordMapper(Field<T> field,
+                              int index,
                               Comparator<? super Record> comparator,
                               BiConsumer<? super List<Record>, ? super Consumer<T>> mapper) {
+                this.field = field;
                 this.index = index;
                 this.comparator = comparator;
                 this.mapper = mapper;
@@ -355,15 +543,18 @@ public class SelectAPI {
                 class Sink implements Consumer<T> {
                     int i = 0;
                     public void accept(T it) {
-                        // Throws IOOBE
-                        records.get(i++).next[index] = it;
+                        try {
+                            records.get(i++).out[index] = it;
+                        } catch (IndexOutOfBoundsException e) {
+                            throw new IllegalStateException(badWindowMessage(field, i, records.size()));
+                        }
                     }
                     void finish() {
                         if (i == 1) {
-                            Object first = records.get(0).next[index];
-                            records.forEach(record -> record.next[index] = first);
+                            Object first = records.get(0).out[index];
+                            records.forEach(record -> record.out[index] = first);
                         } else if (i != records.size()) {
-                            throw new IllegalStateException("Window function must produce exactly one value, or one value per record");
+                            throw new IllegalStateException(badWindowMessage(field, i, records.size()));
                         }
                     }
                 }
@@ -379,6 +570,11 @@ public class SelectAPI {
             }
         }
     
+        /**
+         * A sub-configurator used to define keys of a window that depend on a common intermediate result.
+         *
+         * @param <T> the intermediate result type
+         */
         public class Keys<T> extends Mapper {
             final Function<? super Record, ? extends T> mapper;
             final List<KeyObjectMapper> children = new ArrayList<>();
@@ -386,7 +582,13 @@ public class SelectAPI {
             Keys(Function<? super Record, ? extends T> mapper) {
                 this.mapper = mapper;
             }
-            
+    
+            /**
+             * Defines a key as the application of the given function to this sub-configurator's intermediate result.
+             *
+             * @param mapper a function to be applied to this sub-configurator's intermediate result.
+             * @return this configurator
+             */
             public Keys<T> key(Function<? super T, ?> mapper) {
                 // Since all keys are temps and cannot be overridden, can bypass definitions and indexByField,
                 // and just add to parent right away. This simplifies much.
@@ -426,7 +628,13 @@ public class SelectAPI {
                 }
             }
         }
-        
+    
+        /**
+         * A sub-configurator used to define fields of a window that depend on a common partition ordering and/or a
+         * common intermediate result.
+         *
+         * @param <T> the intermediate result type
+         */
         public class Fields<T> extends WindowFunction {
             final Comparator<? super Record> comparator;
             final Function<? super List<Record>, ? extends T> mapper;
@@ -437,13 +645,29 @@ public class SelectAPI {
                 this.comparator = comparator;
                 this.mapper = mapper;
             }
-            
+    
+            /**
+             * Defines (or redefines) the given field in terms of the given analytical function, applied to this
+             * sub-configurator's intermediate result in each partition. The function must call the consumer exactly
+             * once, or once per record in the partition (even if size information is not preserved by the intermediate
+             * result); otherwise an {@link IllegalStateException} will be thrown during evaluation. If the consumer is
+             * called once, the value passed to it will be assigned to the field on all output records from the
+             * partition. If the consumer is called multiple times, each value passed to it will be assigned to the
+             * field on the next output record, in ordered correspondence with the input records (as ordered by this
+             * sub-configurator's comparator, if any).
+             *
+             * @param field the field
+             * @param mapper an analytical function to be applied to this sub-configurator's intermediate result in each
+             *               partition
+             * @return this configurator
+             * @param <U> the value type of the field
+             */
             public <U> Fields<T> field(Field<U> field,
                                        BiConsumer<? super T, ? super Consumer<U>> mapper) {
                 Objects.requireNonNull(field);
                 Objects.requireNonNull(mapper);
                 int index = indexByField.computeIfAbsent(field, k -> definitions.size());
-                FieldObjectMapper<U> def = new FieldObjectMapper<>(index, mapper);
+                FieldObjectMapper<U> def = new FieldObjectMapper<>(field, index, mapper);
                 if (index == definitions.size())
                     definitions.add(def);
                 else
@@ -466,27 +690,34 @@ public class SelectAPI {
             }
             
             private class FieldObjectMapper<U> {
+                final Field<U> field;
                 final int index;
                 final BiConsumer<? super T, ? super Consumer<U>> mapper;
                 
-                FieldObjectMapper(int index, BiConsumer<? super T, ? super Consumer<U>> mapper) {
+                FieldObjectMapper(Field<U> field,
+                                  int index,
+                                  BiConsumer<? super T, ? super Consumer<U>> mapper) {
+                    this.field = field;
                     this.index = index;
                     this.mapper = mapper;
                 }
                 
                 void accept(List<LinkedRecord> records, T obj) {
                     class Sink implements Consumer<U> {
-                        int i = 0;
+                        int i = -1;
                         public void accept(U it) {
-                            // Throws IOOBE
-                            records.get(i++).next[index] = it;
+                            try {
+                                records.get(++i).out[index] = it;
+                            } catch (IndexOutOfBoundsException e) {
+                                throw new IllegalStateException(badWindowMessage(field, i, records.size()));
+                            }
                         }
                         void finish() {
                             if (i == 1) {
-                                Object first = records.get(0).next[index];
-                                records.forEach(record -> record.next[index] = first);
+                                Object first = records.get(0).out[index];
+                                records.forEach(record -> record.out[index] = first);
                             } else if (i != records.size()) {
-                                throw new IllegalStateException("Window function must produce exactly one value, or one value per record");
+                                throw new IllegalStateException(badWindowMessage(field, i, records.size()));
                             }
                         }
                     }
@@ -504,13 +735,8 @@ public class SelectAPI {
         }
     }
     
-    // Used by window / analytical functions.
-    static class LinkedRecord extends Record {
-        final Object[] next;
-        
-        LinkedRecord(Record curr, Object[] next) {
-            super(curr.header, curr.values);
-            this.next = next;
-        }
+    private static String badWindowMessage(Field<?> field, int emitted, int records) {
+        return String.format("Analytical function for field [%s] must emit exactly one value, or one value per record; " +
+                                 "emitted %d values for %d records", field, emitted, records);
     }
 }

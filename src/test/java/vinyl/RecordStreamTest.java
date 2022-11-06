@@ -4,7 +4,9 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Comparator;
 import java.util.IntSummaryStatistics;
+import java.util.function.Consumer;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static java.util.stream.Collectors.summarizingInt;
 import static java.util.stream.Collectors.summingInt;
@@ -50,7 +52,7 @@ public class RecordStreamTest {
     
     @Test
     void testWindowFunction1() {
-        RecordSet data = RecordStream.aux(IntStream.range(0, 100)).boxed()
+        RecordSet data = RecordStream.aux(IntStream.range(0, 0)).boxed()
             .mapToRecord(select -> select.field(FIELD_A, i -> i*2))
             .select(select -> select
                 .field(FIELD_A)
@@ -89,11 +91,48 @@ public class RecordStreamTest {
                           .filter(o -> o.get(FIELD_A) < 980),
                       on -> on.eq(on.left(FIELD_A), on.right(FIELD_A)),
                       select -> select
-                          .field(FIELD_A, (l, r) -> l.get(FIELD_A) != null ? l.get(FIELD_A) : r.get(FIELD_A))
+                          .field(FIELD_A, (l, r) -> l.isNil() ? r.get(FIELD_A) : l.get(FIELD_A))
                           .field(FIELD_S, (l, r) -> l.get(FIELD_S) + " and " + r.get(FIELD_S))
             )
             .toRecordSet();
         
         System.out.println(joined);
     }
+    
+    @Test
+    void testtest() {
+        Record record = record(init -> init
+            .field(FIELD_A, i -> 1)
+            .field(FIELD_B, i -> 2)
+            .field(FIELD_C, i -> 3)
+        );
+    }
+    
+    Record record(Consumer<IntoAPI<Void>> config) {
+        return RecordStream.aux(Stream.of((Void) null)).mapToRecord(config).findFirst().get();
+    }
+    
+    // test collecting objects into a RecordSet
+    // test collecting records into multiple RecordSets
+    // test some parallel joins
+    // test some parallel selects, with or without windows
+    // test some parallel aggregates
+    // test inner join
+    // test left join
+    // test right join
+    // test full join
+    // **test several variations of join conditions
+    // test collecting to a record-set, re-streaming, and collecting again, equals
+    // test that creating/using field pins from stream headers works
+    // test that record values are correct / in order
+    // test an aggregate operation with no keys
+    // test an aggregate operation with keys
+    // test an aggregate operation with multi-keys
+    // test an aggregate operation with multi-fields
+    // test a window function with no keys
+    // test a window function with keys
+    // test a select operation with multi-fields
+    // test a window function with multi-keys
+    // test a window function with multi-fields
+    // test that field order matches definition order, even with redefinitions
 }

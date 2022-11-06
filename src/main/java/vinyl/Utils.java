@@ -2,7 +2,13 @@ package vinyl;
 
 import java.util.Comparator;
 
+/**
+ * Common utils
+ */
 class Utils {
+    /**
+     * Totally unchecked cast, for when a normal cast is illegal, but we know the cast is safe.
+     */
     @SuppressWarnings("unchecked")
     static <T> T cast(Object o) {
         return (T) o;

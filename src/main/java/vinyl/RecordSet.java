@@ -4,6 +4,10 @@ import java.util.Arrays;
 import java.util.function.Consumer;
 import java.util.stream.Collector;
 
+/**
+ * An ordered collection of {@link Record records} with a common {@link Header header}. Record-sets offer compact
+ * storage for such records, and allow for records to be accessed repeatedly, unlike {@link RecordStream record-streams}.
+ */
 public class RecordSet {
     private final Header header;
     private final Object[][] records;
@@ -13,19 +17,43 @@ public class RecordSet {
         this.records = records;
     }
     
+    /**
+     * Returns the header shared by all records in this record-set.
+     *
+     * @return the header shared by all records at this record-set
+     */
     public Header header() {
         return header;
     }
     
+    /**
+     * Returns a sequential {@code Stream} with this record-set as its source.
+     *
+     * @return a sequential {@code Stream} over the records in this record-set.
+     */
     public RecordStream stream() {
         return new RecordStream(header, Arrays.stream(records).map(values -> new Record(header, values)));
     }
     
-    // TODO: Use separate CollectorAPI to permit future persistent indexes?
-    public static <T> Collector<T, ?, RecordSet> collector(Consumer<MapAPI<T>> config) {
-        return new MapAPI<T>().collector(config);
+    /**
+     * Returns a {@code Collector} that accumulates the input elements into a new {@code RecordSet}, mapping each input
+     * element to a record as configured by the given configurator consumer.
+     *
+     * @param config a consumer that configures the record fields
+     * @return a {@code Collector} which collects all the input elements into a {@code RecordSet}, in encounter order
+     * @param <T> the type of the input elements
+     */
+    public static <T> Collector<T, ?, RecordSet> collector(Consumer<IntoAPI<T>> config) {
+        return new IntoAPI<T>().collector(config);
     }
     
+    /**
+     * Returns {@code true} if and only if the given object is a record-set with a header equal to this set's header,
+     * and the object contains records equal to this set's records, in the same order as this set.
+     *
+     * @param o the object to be compared for equality with this record-set
+     * @return {@code true} if the given object is equal to this record-set
+     */
     @Override
     public boolean equals(Object o) {
         if (this == o)
@@ -44,6 +72,12 @@ public class RecordSet {
         return true;
     }
     
+    /**
+     * Returns the hash code value for this record-set. The hash code of a record-set is derived from the hash code of
+     * its header and the hash codes of each of its records.
+     *
+     * @return the hash code value for this record-set
+     */
     @Override
     public int hashCode() {
         int result = header.hashCode();
@@ -52,6 +86,24 @@ public class RecordSet {
         return result;
     }
     
+    /**
+     * Returns a string representation of this record-set. The string representation consists of the characters
+     * {@code "RecordSet"}, followed by an array-of-arrays. The first inner array lists the header fields in order,
+     * comma-separated. The remaining inner arrays list each record's values in order, comma-separated. The inner arrays
+     * are separated by a comma, newline, and tab. Fields and values are converted to strings as by
+     * {@link String#valueOf(Object)}. For example:
+     *
+     * <pre>{@code
+     * RecordSet[
+     *     [field.a, field.b, field.c],
+     *     [value1.a, value1.b, value1.c],
+     *     [value2.a, value2.b, value2.c],
+     *     [value3.a, value3.b, value3.c]
+     * ]
+     * }</pre>
+     *
+     * @return a string representation of this record-set.
+     */
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("RecordSet[\n\t[");

@@ -3,6 +3,10 @@ package vinyl;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+/**
+ * An opaque value representing an expression defined by {@link JoinAPI.On}.
+ * @param <T> the type of the evaluated expression
+ */
 public class JoinExpr<T> {
     final int side;
     

@@ -6,17 +6,36 @@ import java.util.function.Function;
 import java.util.stream.Collector;
 import java.util.stream.Stream;
 
-public class MapAPI<T> {
+/**
+ * A configurator used to define a conversion from input elements to {@link Record records}.
+ *
+ * <p>Fields defined on the configurator become fields on a resultant {@link Header header}. The header fields are in
+ * order of definition on the configurator. A field may be redefined on the configurator, in which case its definition
+ * is replaced, but its original position in the header is retained.
+ *
+ * @see RecordStream.Aux#mapToRecord
+ * @see RecordSet#collector
+ * @param <T> the type of input elements
+ */
+public class IntoAPI<T> {
     private final Map<Field<?>, Integer> indexByField = new HashMap<>();
-    private final List<FieldMapper<T>> definitions = new ArrayList<>();
+    private final List<Mapper<T>> definitions = new ArrayList<>();
     
-    MapAPI() {} // Prevent default public constructor
+    IntoAPI() {} // Prevent default public constructor
     
-    public <U> MapAPI<T> field(Field<U> field, Function<? super T, ? extends U> mapper) {
+    /**
+     * Defines (or redefines) the given field as the application of the given function to each input object.
+     *
+     * @param field the field
+     * @param mapper a function to apply to each input object
+     * @return this configurator
+     * @param <U> the value type of the field
+     */
+    public <U> IntoAPI<T> field(Field<U> field, Function<? super T, ? extends U> mapper) {
         Objects.requireNonNull(field);
         Objects.requireNonNull(mapper);
         int index = indexByField.computeIfAbsent(field, k -> definitions.size());
-        FieldMapper<T> def = new FieldMapper<>(index, mapper);
+        Mapper<T> def = new Mapper<>(index, mapper);
         if (index == definitions.size())
             definitions.add(def);
         else
@@ -24,20 +43,20 @@ public class MapAPI<T> {
         return this;
     }
     
-    RecordStream accept(RecordStream.Aux<T> stream, Consumer<MapAPI<T>> config) {
+    RecordStream accept(RecordStream.Aux<T> stream, Consumer<IntoAPI<T>> config) {
         config.accept(this);
     
         // Avoid picking up side-effects from bad-actor callbacks.
         Map<Field<?>, Integer> finalIndexByField = new HashMap<>(indexByField);
         @SuppressWarnings("unchecked")
-        FieldMapper<T>[] finalMappers = definitions.toArray(new FieldMapper[0]);
+        Mapper<T>[] finalMappers = definitions.toArray(new Mapper[0]);
         
         // Prep the stream transformation.
         int size = finalMappers.length;
         Header nextHeader = new Header(finalIndexByField);
         Stream<Record> nextStream = stream.stream.map(it -> {
             Object[] arr = new Object[size];
-            for (FieldMapper<T> mapper : finalMappers)
+            for (Mapper<T> mapper : finalMappers)
                 mapper.accept(it, arr);
             return new Record(nextHeader, arr);
         });
@@ -45,20 +64,20 @@ public class MapAPI<T> {
         return new RecordStream(nextHeader, nextStream);
     }
     
-    Collector<T, ?, RecordSet> collector(Consumer<MapAPI<T>> config) {
+    Collector<T, ?, RecordSet> collector(Consumer<IntoAPI<T>> config) {
         config.accept(this);
     
         // Avoid picking up side-effects from bad-actor callbacks.
         Map<Field<?>, Integer> finalIndexByField = new HashMap<>(indexByField);
         @SuppressWarnings("unchecked")
-        FieldMapper<T>[] finalMappers = definitions.toArray(new FieldMapper[0]);
+        Mapper<T>[] finalMappers = definitions.toArray(new Mapper[0]);
         
         int size = definitions.size();
         return Collector.of(
             () -> new ArrayList<Object[]>(),
             (a, t) -> {
                 Object[] arr = new Object[size];
-                for (FieldMapper<T> mapper : finalMappers)
+                for (Mapper<T> mapper : finalMappers)
                     mapper.accept(t, arr);
                 a.add(arr);
             },
@@ -70,11 +89,11 @@ public class MapAPI<T> {
         );
     }
     
-    private static class FieldMapper<T> {
+    private static class Mapper<T> {
         final int index;
         final Function<? super T, ?> mapper;
         
-        FieldMapper(int index, Function<? super T, ?> mapper) {
+        Mapper(int index, Function<? super T, ?> mapper) {
             this.index = index;
             this.mapper = mapper;
         }

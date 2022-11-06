@@ -1,10 +1,15 @@
 package vinyl;
 
+import vinyl.Record.FlaggedRecord;
+
 import java.util.*;
 import java.util.function.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+/**
+ * An opaque value representing a predicate defined by {@link JoinAPI.On}.
+ */
 public class JoinPred {
     JoinPred() {} // Prevent default public constructor
     
@@ -312,7 +317,7 @@ public class JoinPred {
                         Record[] rightSide;
                         try (RecordStream ds = rStream) {
                             // NOTE: Only converting because JoinAPI expects FlaggedRecords during right/full joins.
-                            Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
+                            Stream<Record> s = retainUnmatchedRight ? ds.stream.map(FlaggedRecord::new) : ds.stream;
                             rightSide = s.toArray(Record[]::new);
                         }
                         output = new JoinAPI.Index() {
@@ -385,7 +390,7 @@ public class JoinPred {
                                     : HashMap::new;
                             Map<Object, List<Record>> indexedRight;
                             try (RecordStream ds = rStream) {
-                                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
+                                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(FlaggedRecord::new) : ds.stream;
                                 indexedRight = s.collect(Collectors.groupingBy(rightMapper, mapFactory, Collectors.toList()));
                             }
                             if (pred.op == Binary.Op.EQ || pred.op == Binary.Op.CEQ) {
@@ -423,7 +428,7 @@ public class JoinPred {
                             boolean inclusive = op == Binary.Op.GTE || op == Binary.Op.LTE;
                             TreeMap<Object, List<Record>> indexedRight;
                             try (RecordStream ds = rStream) {
-                                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
+                                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(FlaggedRecord::new) : ds.stream;
                                 indexedRight = s.collect(Collectors.groupingBy(rightMapper, () -> new TreeMap<>(Utils.DEFAULT_COMPARATOR), Collectors.toList()));
                             }
                             switch (op) {
@@ -465,7 +470,7 @@ public class JoinPred {
             BiPredicate<? super Record, ? super Record> predicate = pred.toPredicate();
             Record[] rightSide;
             try (RecordStream ds = rStream) {
-                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
+                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(FlaggedRecord::new) : ds.stream;
                 rightSide = s.toArray(Record[]::new);
             }
             output = new JoinAPI.Index() {
@@ -496,7 +501,7 @@ public class JoinPred {
             BiPredicate<? super Record, ? super Record> predicate = pred.predicate;
             Record[] rightSide;
             try (RecordStream ds = rStream) {
-                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
+                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(FlaggedRecord::new) : ds.stream;
                 rightSide = s.toArray(Record[]::new);
             }
             output = new JoinAPI.Index() {
@@ -517,7 +522,7 @@ public class JoinPred {
         private void doLeftSideMatch(Predicate<? super Record> predicate) {
             Record[] rightSide;
             try (RecordStream ds = rStream) {
-                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(JoinAPI.FlaggedRecord::new) : ds.stream;
+                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(FlaggedRecord::new) : ds.stream;
                 rightSide = s.toArray(Record[]::new);
             }
             output = new JoinAPI.Index() {
@@ -542,7 +547,7 @@ public class JoinPred {
                 if (retainUnmatchedRight) {
                     // NOTE: Only converting because JoinAPI expects FlaggedRecords during right/full joins.
                     Map<Boolean, List<Record>> partition = ds.stream
-                        .map(JoinAPI.FlaggedRecord::new)
+                        .map(FlaggedRecord::new)
                         .collect(Collectors.partitioningBy(predicate));
                     rightSide = partition.get(true);
                     retainedRight = partition.get(false);
@@ -567,7 +572,7 @@ public class JoinPred {
         }
         
         private static Stream<Record> unmatchedRecords(Stream<Record> stream) {
-            Stream<JoinAPI.FlaggedRecord> s = Utils.cast(stream);
+            Stream<FlaggedRecord> s = Utils.cast(stream);
             return s.filter(record -> !record.isMatched).map(record -> record.record);
         }
         

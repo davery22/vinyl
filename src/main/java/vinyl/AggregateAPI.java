@@ -10,6 +10,24 @@ import java.util.stream.StreamSupport;
 import static vinyl.Utils.cast;
 import static vinyl.Utils.tempField;
 
+/**
+ * A configurator used to define an aggregate operation on a {@link RecordStream record-stream}.
+ *
+ * <p>An aggregate operation may define zero or more keys, that together group the input stream into non-overlapping
+ * partitions. The keys may be retained as output fields, or discarded. Each partition will capture one or more input
+ * records, and produce exactly one output record. In the special case that no keys are used and the stream is empty,
+ * the default partition will capture no input records, but will still produce exactly one output record.
+ *
+ * <p>An aggregate operation may define fields as aggregate functions. An aggregate function is applied per-partition,
+ * and returns one value for the partition, which becomes the value of the field on the output record for that
+ * partition.
+ *
+ * <p>Fields defined on the configurator (or any sub-configurators) become fields on a resultant {@link Header header}.
+ * The header fields are in order of definition on the configurator(s). A field may be redefined on the configurator(s),
+ * in which case its definition is replaced, but its original position in the header is retained.
+ *
+ * @see RecordStream#aggregate
+ */
 public class AggregateAPI {
     private final RecordStream stream;
     private final Map<Field<?>, Integer> indexByField = new HashMap<>();
@@ -19,23 +37,51 @@ public class AggregateAPI {
         this.stream = stream;
     }
     
+    /**
+     * Defines a key as the lookup of the given field on each input record.
+     *
+     * @param field the field
+     * @return this configurator
+     * @throws NoSuchElementException if the stream header does not contain the given field
+     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public AggregateAPI key(Field<?> field) {
         FieldPin pin = stream.header.pin(field);
         return keyHelper(true, tempField(), record -> record.get(pin));
     }
     
+    /**
+     * Defines a key as the application of the given function to each input record.
+     *
+     * @param mapper a function to be applied to each input record
+     * @return this configurator
+     */
     public AggregateAPI key(Function<? super Record, ?> mapper) {
         Objects.requireNonNull(mapper);
         return keyHelper(true, tempField(), mapper);
     }
     
+    /**
+     * Defines (or redefines) the given field as a key that looks up the same field on each input record.
+     *
+     * @param field the field
+     * @return this configurator
+     * @throws NoSuchElementException if the stream header does not contain the given field
+     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public AggregateAPI keyField(Field<?> field) {
         FieldPin pin = stream.header.pin(field);
         return keyHelper(false, field, record -> record.get(pin));
     }
     
+    /**
+     * Defines (or redefines) the given field as a key that applies the given function to each input record.
+     *
+     * @param field the field
+     * @param mapper a function to be applied to each input record
+     * @return this configurator
+     * @param <T> the value type of the field
+     */
     public <T> AggregateAPI keyField(Field<T> field, Function<? super Record, ? extends T> mapper) {
         Objects.requireNonNull(field);
         Objects.requireNonNull(mapper);
@@ -52,7 +98,15 @@ public class AggregateAPI {
         return this;
     }
     
-    public <T, A> AggregateAPI aggField(Field<T> field, Collector<? super Record, A, ? extends T> collector) {
+    /**
+     * Defines (or redefines) the given field as an aggregate over input records, using the given collector.
+     *
+     * @param field the field
+     * @param collector the collector that describes the aggregate operation over input records
+     * @return this configurator
+     * @param <T> the value type of the field
+     */
+    public <T> AggregateAPI aggField(Field<T> field, Collector<? super Record, ?, ? extends T> collector) {
         Objects.requireNonNull(field);
         Objects.requireNonNull(collector);
         int index = indexByField.computeIfAbsent(field, k -> definitions.size());
@@ -64,24 +118,58 @@ public class AggregateAPI {
         return this;
     }
     
+    /**
+     * Defines (or redefines) each of the given fields as keys that look up the same field on each input record.
+     *
+     * @param fields the fields
+     * @return this configurator
+     * @throws NoSuchElementException if the stream header does not contain a given field
+     */
     public AggregateAPI keyFields(Field<?>... fields) {
         for (Field<?> field : fields)
             keyField(field);
         return this;
     }
     
+    /**
+     * Defines keys from each of the given fields, as the lookup of the same field on each input record.
+     *
+     * @param fields the fields
+     * @return this configurator
+     * @throws NoSuchElementException if the stream header does not contain a given field
+     */
     public AggregateAPI keys(Field<?>... fields) {
         for (Field<?> field : fields)
             key(field);
         return this;
     }
     
+    /**
+     * Configures a sub-configurator, that may define (or redefine) keys in terms of the result of applying the given
+     * function to each input record. If no keys are defined by the sub-configurator, possibly due to later field
+     * redefinitions, the entire sub-configurator is discarded.
+     *
+     * @param mapper a function to be applied to each input record
+     * @param config a consumer of the sub-configurator
+     * @return this configurator
+     * @param <T> the result type of the function
+     */
     public <T> AggregateAPI keys(Function<? super Record, ? extends T> mapper, Consumer<Keys<T>> config) {
         Objects.requireNonNull(mapper);
         config.accept(new Keys<>(mapper));
         return this;
     }
     
+    /**
+     * Configures a sub-configurator, that may define (or redefine) fields in terms of the result of aggregating the
+     * input records using the given collector. If no fields are defined by the sub-configurator, possibly due to later
+     * field redefinitions, the entire sub-configurator is discarded.
+     *
+     * @param collector the collector that describes the aggregate operation over input records
+     * @param config a consumer of the sub-configurator
+     * @return this configurator
+     * @param <T> the result type of the aggregation
+     */
     public <T> AggregateAPI aggs(Collector<? super Record, ?, ? extends T> collector, Consumer<Aggs<T>> config) {
         Objects.requireNonNull(collector);
         config.accept(new Aggs<>(collector));
@@ -315,6 +403,11 @@ public class AggregateAPI {
         }
     }
     
+    /**
+     * A sub-configurator used to define keys of an aggregate operation that depend on a common intermediate result.
+     *
+     * @param <T> the intermediate result type
+     */
     public class Keys<T> extends Mapper {
         final Function<? super Record, ? extends T> mapper;
         final List<KeyObjectMapper> children = new ArrayList<>();
@@ -323,11 +416,26 @@ public class AggregateAPI {
             this.mapper = mapper;
         }
     
+        /**
+         * Defines a key as the application of the given function to this sub-configurator's intermediate result.
+         *
+         * @param mapper a function to be applied to this sub-configurator's intermediate result
+         * @return this configurator
+         */
         public Keys<T> key(Function<? super T, ?> mapper) {
             Objects.requireNonNull(mapper);
             return keyHelper(true, tempField(), mapper);
         }
-        
+    
+        /**
+         * Defines (or redefines) a field as a key that applies the given function to this sub-configurator's
+         * intermediate result.
+         *
+         * @param field the field
+         * @param mapper a function to be applied to this sub-configurator's intermediate result
+         * @return this configurator
+         * @param <U> the value type of the field
+         */
         public <U> Keys<T> keyField(Field<U> field, Function<? super T, ? extends U> mapper) {
             Objects.requireNonNull(field);
             Objects.requireNonNull(mapper);
@@ -374,6 +482,12 @@ public class AggregateAPI {
         }
     }
     
+    /**
+     * A sub-configurator used to define fields of an aggregate operation that depend on a common intermediate
+     * aggregation result.
+     *
+     * @param <T> the intermediate result type
+     */
     public class Aggs<T> extends CollectorBox {
         final Collector<? super Record, ?, ? extends T> collector;
         final List<AggObjectMapper> children = new ArrayList<>();
@@ -381,7 +495,16 @@ public class AggregateAPI {
         Aggs(Collector<? super Record, ?, ? extends T> collector) {
             this.collector = collector;
         }
-        
+    
+        /**
+         * Defines (or redefines) a field as the application of the given function to this sub-configurator's
+         * intermediate aggregation result.
+         *
+         * @param field the field
+         * @param mapper a function to be applied to this sub-configurator's intermediate aggregation result
+         * @return this configurator
+         * @param <U> the value type of the field
+         */
         public <U> Aggs<T> aggField(Field<U> field, Function<? super T, ? extends U> mapper) {
             Objects.requireNonNull(field);
             Objects.requireNonNull(mapper);

@@ -4,6 +4,12 @@ import java.util.*;
 import java.util.function.*;
 import java.util.stream.*;
 
+/**
+ * A stream of {@link Record records} with a common {@link Header header}. In addition to the usual stream operations,
+ * a {@code RecordStream} supports several relational-style operations that yield a new {@code RecordStream} with a
+ * new header and transformed records. A record-stream's header can always be safely accessed via {@link #header()},
+ * even after the stream has been operated on.
+ */
 public class RecordStream implements Stream<Record> {
     final Header header;
     final Stream<Record> stream;
@@ -15,87 +21,231 @@ public class RecordStream implements Stream<Record> {
     
     // --- new ---
     
+    /**
+     * Returns the header shared by all records at this stage in the stream pipeline.
+     *
+     * @return the header shared by all records at this stage in the stream pipeline
+     */
     public Header header() {
         return header;
     }
     
+    /**
+     * Concatenates the input record-streams to form a new record-stream, similarly to
+     * {@link Stream#concat Stream.concat}, as long as the input stream headers are equal. If the headers are not equal,
+     * throws {@link IllegalArgumentException}.
+     *
+     * @param a the first stream
+     * @param b the second stream
+     * @return the concatenation of the two input streams
+     * @throws IllegalArgumentException if the input stream headers are not equal
+     * @see Stream#concat(Stream, Stream)
+     */
     public static RecordStream concat(RecordStream a, RecordStream b) {
         if (!a.header.equals(b.header))
             throw new IllegalArgumentException("Header mismatch");
         return new RecordStream(a.header, Stream.concat(a.stream, b.stream));
     }
     
+    /**
+     * Converts the given stream to an auxiliary object stream, or returns the given stream if it is already an
+     * auxiliary object stream.
+     *
+     * @param stream the stream to convert
+     * @return an auxiliary object stream
+     * @param <T> the type of the stream elements
+     */
     @SuppressWarnings("unchecked")
     public static <T> Aux<T> aux(Stream<T> stream) {
         if (stream instanceof RecordStream)
             return (Aux<T>) ((RecordStream) stream).aux();
         if (stream instanceof Aux)
             return (Aux<T>) stream;
-        // Chain a no-op, so that the stream will throw if re-used after this call.
-        Stream<T> s = stream.peek(it -> {});
-        return new Aux<>(s);
+        return new Aux<>(stream);
     }
     
+    /**
+     * Converts the given stream to an auxiliary int stream, or returns the given stream if it is already an auxiliary
+     * int stream.
+     *
+     * @param stream the stream to covert
+     * @return an auxiliary int stream
+     */
     public static AuxInt aux(IntStream stream) {
         if (stream instanceof AuxInt)
             return (AuxInt) stream;
-        // Chain a no-op, so that the stream will throw if re-used after this call.
-        IntStream s = stream.peek(it -> {});
-        return new AuxInt(s);
+        return new AuxInt(stream);
     }
     
+    /**
+     * Converts the given stream to an auxiliary long stream, or returns the given stream if it is already an auxiliary
+     * long stream.
+     *
+     * @param stream the stream to covert
+     * @return an auxiliary long stream
+     */
     public static AuxLong aux(LongStream stream) {
         if (stream instanceof AuxLong)
             return (AuxLong) stream;
-        // Chain a no-op, so that the stream will throw if re-used after this call.
-        LongStream s = stream.peek(it -> {});
-        return new AuxLong(s);
+        return new AuxLong(stream);
     }
     
+    /**
+     * Converts the given stream to an auxiliary double stream, or returns the given stream if it is already an
+     * auxiliary double stream.
+     *
+     * @param stream the stream to covert
+     * @return an auxiliary double stream
+     */
     public static AuxDouble aux(DoubleStream stream) {
         if (stream instanceof AuxDouble)
             return (AuxDouble) stream;
-        // Chain a no-op, so that the stream will throw if re-used after this call.
-        DoubleStream s = stream.peek(it -> {});
-        return new AuxDouble(s);
+        return new AuxDouble(stream);
     }
     
+    /**
+     * Accumulates the records of this stream into a {@code RecordSet}. The records in the set will be in this stream's
+     * encounter order, if one exists. The record-set will have the same header as this stream.
+     *
+     * <p>This is a terminal operation.
+     *
+     * @return a record-set containing the stream records
+     */
     public RecordSet toRecordSet() {
         return new RecordSet(header, stream.map(record -> record.values).toArray(Object[][]::new));
     }
     
+    /**
+     * Converts this stream to an auxiliary object stream consisting of the records of this stream.
+     *
+     * @return an auxiliary object stream
+     */
     public Aux<Record> aux() {
-        // Chain a no-op, so that the stream will throw if re-used after this call.
-        Stream<Record> s = stream.peek(it -> {});
-        return new Aux<>(s);
+        return new Aux<>(stream);
     }
     
+    /**
+     * Returns a stream that maps each record in this stream to a new record, as configured by the given configurator
+     * consumer. The returned stream will have a new header, shared by the new records.
+     *
+     * <p>This is a stateless intermediate operation, by default. If {@link SelectAPI.Window windows} are configured,
+     * this becomes a stateful intermediate operation.
+     *
+     * @param config a consumer that configures the output fields
+     * @return a stream that maps each record in this stream to a new record
+     */
     public RecordStream select(Consumer<SelectAPI> config) {
         return new SelectAPI(this).accept(config);
     }
     
+    /**
+     * Returns a stream that aggregates the records in this stream, possibly within grouped partitions. Each partition
+     * will result in one record in the returned stream. The grouping and aggregation are carried out as configured by
+     * the given configurator consumer. The returned stream will have a new header, shared by the new records.
+     *
+     * <p>This is a stateful intermediate operation.
+     *
+     * @param config a consumer that configures the aggregate operation
+     * @return a stream that aggregates the records in this stream
+     */
     public RecordStream aggregate(Consumer<AggregateAPI> config) {
         return new AggregateAPI(this).accept(config);
     }
     
+    /**
+     * Returns a stream that performs an inner join between this (left) stream and the given right stream. The join
+     * streams the left-side, and for each left-side record, searches the right-side for matching records such that the
+     * (left, right) pair of records satisfy the configured join condition. When a match is found, a resulting record is
+     * created as configured and emitted downstream. The returned stream will have a new header, shared by the new
+     * records.
+     *
+     * <p>For an inner join, if a given left-side record does not match any right-side records, or vice versa, nothing
+     * is emitted downstream.
+     *
+     * <p>This is a stateless intermediate operation on the left stream, and a stateful intermediate operation on the
+     * right stream. Upon {@code close()}, the returned stream closes both input streams.
+     *
+     * @param right the right-side stream
+     * @param onConfig a function that configures the join condition
+     * @param selectConfig a consumer that configures the output fields
+     * @return the new stream
+     */
     public RecordStream join(RecordStream right,
                              Function<JoinAPI.On, JoinPred> onConfig,
                              Consumer<JoinAPI.Select> selectConfig) {
         return new JoinAPI(JoinAPI.JoinType.INNER, this, right).accept(onConfig, selectConfig);
     }
     
+    /**
+     * Returns a stream that performs a left outer join between this (left) stream and the given right stream. The join
+     * streams the left-side, and for each left-side record, searches the right-side for matching records such that the
+     * (left, right) pair of records satisfy the configured join condition. When a match is found, a resulting record is
+     * created as configured and emitted downstream. The returned stream will have a new header, shared by the new
+     * records.
+     *
+     * <p>For a left join, if a given left-side record does not match any right-side records, it is paired with a
+     * {@link Record#isNil() nil} right-side record, and a resulting record is created as configured and emitted
+     * downstream. If a right-side record does not match any left-side records, nothing is emitted downstream.
+     *
+     * <p>This is a stateless intermediate operation on the left stream, and a stateful intermediate operation on the
+     * right stream. Upon {@code close()}, the returned stream closes both input streams.
+     *
+     * @param right the right-side stream
+     * @param onConfig a function that configures the join condition
+     * @param selectConfig a consumer that configures the output fields
+     * @return the new stream
+     */
     public RecordStream leftJoin(RecordStream right,
                                  Function<JoinAPI.On, JoinPred> onConfig,
                                  Consumer<JoinAPI.Select> selectConfig) {
         return new JoinAPI(JoinAPI.JoinType.LEFT, this, right).accept(onConfig, selectConfig);
     }
     
+    /**
+     * Returns a stream that performs a right outer join between this (left) stream and the given right stream. The join
+     * streams the left-side, and for each left-side record, searches the right-side for matching records such that the
+     * (left, right) pair of records satisfy the configured join condition. When a match is found, a resulting record is
+     * created as configured and emitted downstream. The returned stream will have a new header, shared by the new
+     * records.
+     *
+     * <p>For a right join, if a given left-side record does not match any right-side records, nothing is emitted
+     * downstream. If a right-side record does not match any left-side records, it is paired with a
+     * {@link Record#isNil() nil} left-side record, and a resulting record is created as configured and emitted
+     * downstream.
+     *
+     * <p>This is a stateless intermediate operation on the left stream, and a stateful intermediate operation on the
+     * right stream. Upon {@code close()}, the returned stream closes both input streams.
+     *
+     * @param right the right-side stream
+     * @param onConfig a function that configures the join condition
+     * @param selectConfig a consumer that configures the output fields
+     * @return the new stream
+     */
     public RecordStream rightJoin(RecordStream right,
                                   Function<JoinAPI.On, JoinPred> onConfig,
                                   Consumer<JoinAPI.Select> selectConfig) {
         return new JoinAPI(JoinAPI.JoinType.RIGHT, this, right).accept(onConfig, selectConfig);
     }
     
+    /**
+     * Returns a stream that performs a full outer join between this (left) stream and the given right stream. The join
+     * streams the left-side, and for each left-side record, searches the right-side for matching records such that the
+     * (left, right) pair of records satisfy the configured join condition. When a match is found, a resulting record is
+     * created as configured and emitted downstream. The returned stream will have a new header, shared by the new
+     * records.
+     *
+     * <p>For a full join, if a given left-side record does not match any right-side records, or vice versa, the
+     * unmatched record is paired with a {@link Record#isNil() nil} opposite-side record, and a resulting record is
+     * created as configured and emitted downstream.
+     *
+     * <p>This is a stateless intermediate operation on the left stream, and a stateful intermediate operation on the
+     * right stream. Upon {@code close()}, the returned stream closes both input streams.
+     *
+     * @param right the right-side stream
+     * @param onConfig a function that configures the join condition
+     * @param selectConfig a consumer that configures the output fields
+     * @return the new stream
+     */
     public RecordStream fullJoin(RecordStream right,
                                  Function<JoinAPI.On, JoinPred> onConfig,
                                  Consumer<JoinAPI.Select> selectConfig) {
@@ -103,6 +253,16 @@ public class RecordStream implements Stream<Record> {
     }
     
     // --- old ---
+    
+    @Override
+    public RecordStream takeWhile(Predicate<? super Record> predicate) {
+        return new RecordStream(header, stream.takeWhile(predicate));
+    }
+    
+    @Override
+    public RecordStream dropWhile(Predicate<? super Record> predicate) {
+        return new RecordStream(header, stream.dropWhile(predicate));
+    }
     
     @Override
     public RecordStream filter(Predicate<? super Record> predicate) {
@@ -149,27 +309,9 @@ public class RecordStream implements Stream<Record> {
         return new AuxDouble(stream.flatMapToDouble(mapper));
     }
     
-    private static class HeadlessEq {
-        final Record record;
-        
-        HeadlessEq(Record record) {
-            this.record = record;
-        }
-        
-        @Override
-        public boolean equals(Object o) {
-            return Arrays.equals(record.values, ((HeadlessEq) o).record.values);
-        }
-        
-        @Override
-        public int hashCode() {
-            return Arrays.hashCode(record.values);
-        }
-    }
-    
     @Override
     public RecordStream distinct() {
-        return new RecordStream(header, stream.map(HeadlessEq::new).distinct().map(h -> h.record));
+        return new RecordStream(header, stream.distinct());
     }
     
     /**
@@ -178,13 +320,23 @@ public class RecordStream implements Stream<Record> {
     static final Comparator<Record> HEADLESS_RECORD_COMPARATOR = (a, b) -> {
         for (int i = 0; i < a.values.length; i++) {
             int v = Utils.DEFAULT_COMPARATOR.compare(a.values[i], b.values[i]);
-            if (v != 0) {
+            if (v != 0)
                 return v;
-            }
         }
         return 0;
     };
     
+    /**
+     * Returns a stream consisting of the records of this stream, sorted according to the natural order of each header
+     * field in turn (nulls first/lowest). If any header fields are not {@code Comparable}, a
+     * {@code java.lang.ClassCastException} may be thrown when the terminal operation is executed.
+     *
+     * <p>For ordered streams, the sort is stable. For unordered streams, no stability guarantees are made.
+     *
+     * <p>This is a stateful intermediate operation.
+     *
+     * @return the new stream
+     */
     @Override
     public RecordStream sorted() {
         return new RecordStream(header, stream.sorted(HEADLESS_RECORD_COMPARATOR));
@@ -339,6 +491,11 @@ public class RecordStream implements Stream<Record> {
         stream.close();
     }
     
+    /**
+     * An auxiliary stream of objects that may readily be converted to or from a {@link RecordStream record-stream}.
+     *
+     * @param <T> the type of the stream elements
+     */
     public static class Aux<T> implements Stream<T> {
         final Stream<T> stream;
         
@@ -347,12 +504,29 @@ public class RecordStream implements Stream<Record> {
         }
         
         // --- new ---
-        
-        public RecordStream mapToRecord(Consumer<MapAPI<T>> config) {
-            return new MapAPI<T>().accept(this, config);
+    
+        /**
+         * Returns a stream that maps each element in this stream to a record, as configured by the given configurator
+         * consumer. The returned record-stream will have a header shared by all its records.
+         *
+         * @param config a consumer that configures the record fields
+         * @return a stream that maps each element in this stream to a record
+         */
+        public RecordStream mapToRecord(Consumer<IntoAPI<T>> config) {
+            return new IntoAPI<T>().accept(this, config);
         }
         
         // --- old ---
+        
+        @Override
+        public Aux<T> takeWhile(Predicate<? super T> predicate) {
+            return new Aux<>(stream.takeWhile(predicate));
+        }
+    
+        @Override
+        public Aux<T> dropWhile(Predicate<? super T> predicate) {
+            return new Aux<>(stream.dropWhile(predicate));
+        }
     
         @Override
         public Aux<T> filter(Predicate<? super T> predicate) {
@@ -559,6 +733,9 @@ public class RecordStream implements Stream<Record> {
         }
     }
     
+    /**
+     * An auxiliary stream of ints that may readily be converted to or from a {@link RecordStream record-stream}.
+     */
     public static class AuxInt implements IntStream {
         private final IntStream stream;
         
@@ -566,6 +743,16 @@ public class RecordStream implements Stream<Record> {
             this.stream = stream;
         }
     
+        @Override
+        public AuxInt takeWhile(IntPredicate predicate) {
+            return new AuxInt(stream.takeWhile(predicate));
+        }
+    
+        @Override
+        public AuxInt dropWhile(IntPredicate predicate) {
+            return new AuxInt(stream.dropWhile(predicate));
+        }
+        
         @Override
         public AuxInt filter(IntPredicate predicate) {
             return new AuxInt(stream.filter(predicate));
@@ -766,6 +953,9 @@ public class RecordStream implements Stream<Record> {
         }
     }
     
+    /**
+     * An auxiliary stream of longs that may readily be converted to or from a {@link RecordStream record-stream}.
+     */
     public static class AuxLong implements LongStream {
         private final LongStream stream;
         
@@ -773,6 +963,16 @@ public class RecordStream implements Stream<Record> {
             this.stream = stream;
         }
     
+        @Override
+        public AuxLong takeWhile(LongPredicate predicate) {
+            return new AuxLong(stream.takeWhile(predicate));
+        }
+    
+        @Override
+        public AuxLong dropWhile(LongPredicate predicate) {
+            return new AuxLong(stream.dropWhile(predicate));
+        }
+        
         @Override
         public AuxLong filter(LongPredicate predicate) {
             return new AuxLong(stream.filter(predicate));
@@ -968,6 +1168,9 @@ public class RecordStream implements Stream<Record> {
         }
     }
     
+    /**
+     * An auxiliary stream of doubles that may readily be converted to or from a {@link RecordStream record-stream}.
+     */
     public static class AuxDouble implements DoubleStream {
         private final DoubleStream stream;
         
@@ -975,6 +1178,16 @@ public class RecordStream implements Stream<Record> {
             this.stream = stream;
         }
     
+        @Override
+        public AuxDouble takeWhile(DoublePredicate predicate) {
+            return new AuxDouble(stream.takeWhile(predicate));
+        }
+    
+        @Override
+        public AuxDouble dropWhile(DoublePredicate predicate) {
+            return new AuxDouble(stream.dropWhile(predicate));
+        }
+        
         @Override
         public AuxDouble filter(DoublePredicate predicate) {
             return new AuxDouble(stream.filter(predicate));

@@ -127,9 +127,9 @@ public class SelectAPI {
     }
     
     /**
-     * Configures a sub-configurator, that may define (or redefine) fields as analytical functions over partitions of
-     * the input stream. If no fields are defined by the sub-configurator, possibly due to later field redefinitions,
-     * the entire sub-configurator is discarded.
+     * Configures a sub-configurator, that may define (or redefine) fields as analytic functions over partitions of the
+     * input stream. If no fields are defined by the sub-configurator, possibly due to later field redefinitions, the
+     * entire sub-configurator is discarded.
      *
      * @param config a consumer of the sub-configurator
      * @return this configurator
@@ -197,28 +197,39 @@ public class SelectAPI {
     }
     
     private Stream<LinkedRecord> streamWindows(Stream<LinkedRecord> stream, List<Window> windows) {
-        Stream<LinkedRecord> curr = stream;
-        // Process windows sequentially to minimize memory usage.
-        // TODO: Merge keyless (non-partitioned) windows, and skip groupingBy step for those (but stay safe for 0-records case).
-        for (Window window : windows) {
-            // Copying keyMapperChildren to array also acts as a defensive copy against bad-actor user code.
-            // There is no need to do the same for windowFnChildren (used in Window::accept), as they can only be added
-            // by trusted code.
-            Function<Record, List<?>> classifier = classifierFor(window.keyMapperChildren.toArray(new Mapper[0]), window.keyCount);
-            Collector<LinkedRecord, ?, Map<List<?>, List<LinkedRecord>>> collector = Collectors.groupingBy(classifier, Collectors.toList());
-            Stream<LinkedRecord> prev = curr;
-            curr = StreamSupport.stream(
-                () -> {
-                    Collection<List<LinkedRecord>> partitions = prev.collect(collector).values();
-                    (stream.isParallel() ? partitions.parallelStream() : partitions.stream())
-                        .forEach(window::accept);
-                    return partitions.spliterator();
-                },
-                Spliterator.SIZED,
-                stream.isParallel()
-            ).flatMap(Collection::stream);
-        }
-        return curr.onClose(stream::close);
+        List<Collector<LinkedRecord, ?, Map<List<?>, List<LinkedRecord>>>> collectors = new ArrayList<>(windows.size());
+        for (Window window : windows)
+            // Optimization: skip grouping step for keyless (non-partitioned) windows.
+            if (window.keyCount == 0)
+                collectors.add(Collectors.collectingAndThen(Collectors.toList(),
+                                                            list -> list.isEmpty()
+                                                                ? Collections.emptyMap()
+                                                                : Collections.singletonMap(Collections.emptyList(), list)));
+            else {
+                // Copying keyMapperChildren to array also acts as a defensive copy against bad-actor user code.
+                // There is no need to do the same for windowFnChildren (used in Window::accept), as they can only be added
+                // by trusted code.
+                Function<Record, List<?>> classifier = classifierFor(window.keyMapperChildren.toArray(new Mapper[0]), window.keyCount);
+                collectors.add(Collectors.groupingBy(classifier, Collectors.toList()));
+            }
+        Function<Collection<List<LinkedRecord>>, Stream<List<LinkedRecord>>> toStream =
+            stream.isParallel() ? Collection::parallelStream : Collection::stream;
+        return StreamSupport.stream(
+            () -> {
+                // Process windows sequentially to minimize memory usage.
+                Stream<LinkedRecord> curr = stream;
+                for (int i = 0; ; i++) {
+                    Collection<List<LinkedRecord>> partitions = curr.collect(collectors.get(i)).values();
+                    Stream<List<LinkedRecord>> next = toStream.apply(partitions).peek(windows.get(i)::accept);
+                    if (i == windows.size()-1) // Optimization: Return the values stream spliterator, so that we can report Spliterator.SIZED
+                        return next.spliterator();
+                    curr = next.flatMap(Collection::stream);
+                }
+            },
+            Spliterator.SIZED | Spliterator.NONNULL | Spliterator.IMMUTABLE,
+            stream.isParallel()
+        ).flatMap(Collection::stream)
+            .onClose(stream::close);
     }
     
     private Function<Record, List<?>> classifierFor(Mapper[] mappers, int keysSize) {
@@ -315,16 +326,16 @@ public class SelectAPI {
     }
     
     /**
-     * A sub-configurator used to define fields of a select operation in terms of analytical functions over partitions
-     * of the input stream.
+     * A sub-configurator used to define fields of a select operation in terms of analytic functions over partitions of
+     * the input stream.
      *
      * <p>A window may define zero or more keys, that together group the input stream into non-overlapping partitions.
      * Each partition will capture one or more input records, each of which corresponds to exactly one output record.
      *
-     * <p>A window may define fields as analytical functions. An analytical function is applied per-partition, and emits
-     * one value per input record in the partition, which becomes the value of the field on the corresponding output
-     * record from the partition. Alternatively, an analytical function may emit just one value for the partition, which
-     * becomes the value of the field on all output records from the partition.
+     * <p>A window may define fields as analytic functions. An analytic function is applied per-partition, and emits one
+     * value per input record in the partition, which becomes the value of the field on the corresponding output record
+     * from the partition. Alternatively, an analytic function may emit just one value for the partition, which becomes
+     * the value of the field on all output records from the partition.
      */
     public class Window {
         final List<Mapper> keyMapperChildren = new ArrayList<>();
@@ -364,7 +375,7 @@ public class SelectAPI {
          * Shorthand for calling {@link #field(Field, Comparator, BiConsumer)}, passing a {@code null} comparator.
          *
          * @param field the field
-         * @param mapper an analytical function to be applied to input records in each partition
+         * @param mapper an analytic function to be applied to input records in each partition
          * @return this configurator
          * @param <T> the value type of the field
          */
@@ -374,21 +385,24 @@ public class SelectAPI {
         }
     
         /**
-         * Defines (or redefines) the given field in terms of the given analytical function, applied to input records in
-         * each partition. The function must call the consumer exactly once, or once per record in the partition;
-         * otherwise an {@link IllegalStateException} will be thrown during evaluation. If the consumer is called once,
-         * the value passed to it will be assigned to the field on all output records from the partition. If the
-         * consumer is called multiple times, each value passed to it will be assigned to the field on the next output
-         * record, in ordered correspondence with the input records (as ordered by the given comparator, if any).
+         * Defines (or redefines) the given field in terms of the given analytic function, applied to input records in
+         * each partition.
          *
-         * <p>A comparator may be provided to sort input records in the partition prior to applying the analytical
-         * function. Some analytical functions may depend on this for proper ordered correspondence. If the comparator
-         * is {@code null}, input records are left unsorted.
+         * <p>The function is called with an unmodifiable list of input records and a consumer of field values. The
+         * function must call the consumer exactly once, or once per record in the partition; otherwise an
+         * {@link IllegalStateException} will be thrown during evaluation. If the consumer is called once, the value
+         * passed to it will be assigned to the field on all output records from the partition. If the consumer is
+         * called multiple times, each value passed to it will be assigned to the field on the next output record, in
+         * ordered correspondence with the input records (as ordered by the given comparator, if any).
+         *
+         * <p>A comparator may be provided to sort input records in the partition prior to applying the analytic
+         * function. Some analytic functions may depend on this for proper ordered correspondence. If the comparator is
+         * {@code null}, input records are left unsorted.
          *
          * @param field the field
          * @param comparator a comparator used to sort the input records in the partition before applying the function.
          *                   May be {@code null}, in which case input records are left unsorted.
-         * @param mapper an analytical function to be applied to input records in each partition
+         * @param mapper an analytic function to be applied to input records in each partition
          * @return this configurator
          * @param <T> the value type of the field
          */
@@ -455,7 +469,7 @@ public class SelectAPI {
          * identity} mapper.
          *
          * @param comparator a comparator used to sort the input records in the partition before applying any enclosed
-         *                   analytical functions. May be {@code null}, in which case input records are left unsorted.
+         *                   analytic functions. May be {@code null}, in which case input records are left unsorted.
          * @param config a consumer of the sub-configurator
          * @return this configurator
          */
@@ -466,20 +480,21 @@ public class SelectAPI {
         }
     
         /**
-         * Configures a sub-configurator, that may define (or redefine) fields in terms of analytical functions that
-         * take as input the result of applying the given function to input records in each partition. Enclosed
-         * analytical functions follow the same "once or once-per-record" emission rules as usual, even if size
-         * information is not preserved by the given function's result.
+         * Configures a sub-configurator, that may define (or redefine) fields in terms of analytic functions that take
+         * as input the result of applying the given function to input records in each partition. The function is called
+         * with an unmodifiable list of input records. Enclosed analytic functions follow the same "once or
+         * once-per-record" emission rules as usual, even if size information is not preserved by the given function's
+         * result.
          *
          * <p>A comparator may be provided to sort input records in the partition prior to applying the given function.
-         * Some enclosed analytical functions may depend on this for proper ordered correspondence. If the comparator
-         * is {@code null}, input records are left unsorted.
+         * Some enclosed analytic functions may depend on this for proper ordered correspondence. If the comparator is
+         * {@code null}, input records are left unsorted.
          *
          * <p>If no fields are defined by the sub-configurator, possibly due to later field redefinitions, the entire
          * sub-configurator is discarded.
          *
          * @param comparator a comparator used to sort the input records in the partition before applying the function,
-         *                   or any enclosed analytical functions. May be {@code null}, in which case input records are
+         *                   or any enclosed analytic functions. May be {@code null}, in which case input records are
          *                   left unsorted.
          * @param mapper a function to be applied to input records in each partition
          * @param config a consumer of the sub-configurator
@@ -647,17 +662,19 @@ public class SelectAPI {
             }
     
             /**
-             * Defines (or redefines) the given field in terms of the given analytical function, applied to this
-             * sub-configurator's intermediate result in each partition. The function must call the consumer exactly
-             * once, or once per record in the partition (even if size information is not preserved by the intermediate
-             * result); otherwise an {@link IllegalStateException} will be thrown during evaluation. If the consumer is
-             * called once, the value passed to it will be assigned to the field on all output records from the
-             * partition. If the consumer is called multiple times, each value passed to it will be assigned to the
-             * field on the next output record, in ordered correspondence with the input records (as ordered by this
-             * sub-configurator's comparator, if any).
+             * Defines (or redefines) the given field in terms of the given analytic function, applied to this
+             * sub-configurator's intermediate result in each partition.
+             *
+             * <p>The function is called with the intermediate result and a consumer of field values. The function must
+             * call the consumer exactly once, or once per record in the partition (even if size information was not
+             * preserved by the intermediate result); otherwise an {@link IllegalStateException} will be thrown during
+             * evaluation. If the consumer is called once, the value passed to it will be assigned to the field on all
+             * output records from the partition. If the consumer is called multiple times, each value passed to it will
+             * be assigned to the field on the next output record, in ordered correspondence with the input records (as
+             * ordered by this sub-configurator's comparator, if any).
              *
              * @param field the field
-             * @param mapper an analytical function to be applied to this sub-configurator's intermediate result in each
+             * @param mapper an analytic function to be applied to this sub-configurator's intermediate result in each
              *               partition
              * @return this configurator
              * @param <U> the value type of the field
@@ -736,7 +753,7 @@ public class SelectAPI {
     }
     
     private static String badWindowMessage(Field<?> field, int emitted, int records) {
-        return String.format("Analytical function for field [%s] must emit exactly one value, or one value per record; " +
+        return String.format("Analytic function for field [%s] must emit exactly one value, or one value per record; " +
                                  "emitted %d values for %d records", field, emitted, records);
     }
 }

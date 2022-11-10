@@ -144,7 +144,7 @@ public class JoinAPI {
     }
     
     interface Index {
-        void search(Record left, Consumer<Record> rx);
+        void search(Record left, Consumer<Record> sink);
         default Stream<Record> unmatchedRight() { throw new UnsupportedOperationException(); }
     }
     
@@ -158,9 +158,9 @@ public class JoinAPI {
         }
         
         @Override
-        public void search(Record left, Consumer<Record> rx) {
-            Consumer<Record> sink = right -> rx.accept(combiner.apply(left, right));
-            index.search(left, sink);
+        public void search(Record left, Consumer<Record> sink) {
+            Consumer<Record> wrapperSink = right -> sink.accept(combiner.apply(left, right));
+            index.search(left, wrapperSink);
         }
     }
     
@@ -176,21 +176,21 @@ public class JoinAPI {
         }
     
         @Override
-        public void search(Record left, Consumer<Record> rx) {
+        public void search(Record left, Consumer<Record> sink) {
             class Sink implements Consumer<Record> {
                 boolean noneMatch = true;
                 public void accept(Record right) {
                     noneMatch = false;
-                    rx.accept(combiner.apply(left, right));
+                    sink.accept(combiner.apply(left, right));
                 }
                 public void finish() {
                     if (noneMatch)
-                        rx.accept(combiner.apply(left, rightNilRecord));
+                        sink.accept(combiner.apply(left, rightNilRecord));
                 }
             }
-            Sink sink = new Sink();
-            index.search(left, sink);
-            sink.finish();
+            Sink wrapperSink = new Sink();
+            index.search(left, wrapperSink);
+            wrapperSink.finish();
         }
     }
     
@@ -208,12 +208,12 @@ public class JoinAPI {
         }
         
         @Override
-        public void search(Record left, Consumer<Record> rx) {
-            Consumer<FlaggedRecord> sink = right -> {
+        public void search(Record left, Consumer<Record> sink) {
+            Consumer<FlaggedRecord> wrapperSink = right -> {
                 right.isMatched = true;
-                rx.accept(combiner.apply(left, right.record));
+                sink.accept(combiner.apply(left, right.record));
             };
-            index.search(left, Utils.cast(sink));
+            index.search(left, Utils.cast(wrapperSink));
         }
         
         @Override
@@ -239,22 +239,22 @@ public class JoinAPI {
         }
     
         @Override
-        public void search(Record left, Consumer<Record> rx) {
+        public void search(Record left, Consumer<Record> sink) {
             class Sink implements Consumer<FlaggedRecord> {
                 boolean noneMatch = true;
                 public void accept(FlaggedRecord right) {
                     noneMatch = false;
                     right.isMatched = true;
-                    rx.accept(combiner.apply(left, right.record));
+                    sink.accept(combiner.apply(left, right.record));
                 }
                 public void finish() {
                     if (noneMatch)
-                        rx.accept(combiner.apply(left, rightNilRecord));
+                        sink.accept(combiner.apply(left, rightNilRecord));
                 }
             }
-            Sink sink = new Sink();
-            index.search(left, Utils.cast(sink));
-            sink.finish();
+            Sink wrapperSink = new Sink();
+            index.search(left, Utils.cast(wrapperSink));
+            wrapperSink.finish();
         }
     
         @Override

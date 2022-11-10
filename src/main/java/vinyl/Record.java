@@ -146,24 +146,15 @@ public class Record {
         return sb.append('}').toString();
     }
     
-    abstract static class DelegatingRecord extends Record {
-        final Record record;
-        
-        DelegatingRecord(Record record) {
-            super(record.header, record.values);
-            this.record = record;
-        }
-    }
-    
     /**
-     * Special record type used ephemerally by window / analytical functions to associate input records with output
+     * Special record type used ephemerally by window / analytic functions to associate input records with output
      * records.
      */
-    static class LinkedRecord extends DelegatingRecord {
+    static class LinkedRecord extends Record {
         final Object[] out;
         
         LinkedRecord(Record in, Object[] out) {
-            super(in);
+            super(in.header, in.values);
             this.out = out;
         }
     }
@@ -172,14 +163,16 @@ public class Record {
      * Special record type used ephemerally by right/full joins to keep track of unmatched records on the right. During
      * the join, records that are matched are flagged. Remaining unmatched records are emitted after the join.
      */
-    static class FlaggedRecord extends DelegatingRecord {
+    static class FlaggedRecord extends Record {
         // This field may be modified by un-synchronized concurrent writers during a parallel join. This is safe,
         // because all writers try to set it to the same value (true), and the only reader waits for all writers to
         // terminate (so all writes are visible to it).
         boolean isMatched = false;
+        final Record record;
         
         FlaggedRecord(Record record) {
-            super(record);
+            super(record.header, record.values);
+            this.record = record;
         }
     }
     

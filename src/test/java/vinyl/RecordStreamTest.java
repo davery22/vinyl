@@ -18,6 +18,8 @@ public class RecordStreamTest {
     private static final Field<Integer> FIELD_D = new Field<>("D");
     private static final Field<Integer> FIELD_E = new Field<>("E");
     private static final Field<Long> FIELD_F = new Field<>("F");
+    private static final Field<Long> FIELD_G = new Field<>("G");
+    private static final Field<Double> FIELD_H = new Field<>("H");
     private static final Field<String> FIELD_S = new Field<>("S");
     
     @Test
@@ -52,17 +54,22 @@ public class RecordStreamTest {
     
     @Test
     void testWindowFunction1() {
-        RecordSet data = RecordStream.aux(IntStream.range(0, 0)).boxed()
-            .mapToRecord(select -> select.field(FIELD_A, i -> i*2))
+        RecordSet data = RecordStream.aux(IntStream.range(0, 10)).boxed()
+            .mapToRecord(into -> into.field(FIELD_A, i -> i*2))
             .select(select -> select
                 .field(FIELD_A)
                 .window(window -> window
-                    .field(FIELD_B, Comparator.comparingInt(FIELD_A::get).reversed(), (os, rx) -> IntStream.range(0, os.size()).forEach(rx::accept))
-                    .field(FIELD_C, (os, rx) -> rx.accept(os.stream().mapToInt(FIELD_A::get).sum()))
+                    .field(FIELD_B, Analytics.link(FIELD_A::get, -1, 404))
+                    .field(FIELD_F, Comparator.comparingInt(FIELD_A::get).reversed(), Analytics.rowNumber(1))
+                    .fields(Comparator.comparingInt(FIELD_A::get), fields -> fields
+                        .field(FIELD_G, Analytics.percentileDisc(0.500000000, o -> o.get(FIELD_A).longValue()))
+                        .field(FIELD_H, Analytics.percentileCont(0.500000000, FIELD_A::get))
+                    )
+                    .field(FIELD_C, (o, sink) -> sink.accept(o.stream().mapToInt(FIELD_A::get).sum()))
                 )
                 .window(window -> window
                     .key(o -> o.get(FIELD_A) / 10)
-                    .field(FIELD_D, (os, rx) -> rx.accept(os.stream().mapToInt(FIELD_A::get).max().getAsInt()))
+                    .field(FIELD_D, (o, sink) -> sink.accept(o.stream().mapToInt(FIELD_A::get).max().getAsInt()))
                 )
             )
             .parallel()
@@ -135,4 +142,5 @@ public class RecordStreamTest {
     // test a window function with multi-keys
     // test a window function with multi-fields
     // test that field order matches definition order, even with redefinitions
+    // test that analytic function cannot mutate the list passed to it
 }

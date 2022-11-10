@@ -388,8 +388,8 @@ public class SelectAPI {
          * Defines (or redefines) the given field in terms of the given analytic function, applied to input records in
          * each partition.
          *
-         * <p>The function is called with an unmodifiable list of input records and a consumer of field values. The
-         * function must call the consumer exactly once, or once per record in the partition; otherwise an
+         * <p>The function is called with a non-empty, unmodifiable list of input records and a consumer of field
+         * values. The function must call the consumer exactly once, or once per record in the partition; otherwise an
          * {@link IllegalStateException} will be thrown during evaluation. If the consumer is called once, the value
          * passed to it will be assigned to the field on all output records from the partition. If the consumer is
          * called multiple times, each value passed to it will be assigned to the field on the next output record, in
@@ -482,7 +482,7 @@ public class SelectAPI {
         /**
          * Configures a sub-configurator, that may define (or redefine) fields in terms of analytic functions that take
          * as input the result of applying the given function to input records in each partition. The function is called
-         * with an unmodifiable list of input records. Enclosed analytic functions follow the same "once or
+         * with a non-empty, unmodifiable list of input records. Enclosed analytic functions follow the same "once or
          * once-per-record" emission rules as usual, even if size information is not preserved by the given function's
          * result.
          *
@@ -561,7 +561,7 @@ public class SelectAPI {
                         try {
                             records.get(i++).out[index] = it;
                         } catch (IndexOutOfBoundsException e) {
-                            throw new IllegalStateException(badWindowMessage(field, i, records.size()));
+                            throw new IllegalStateException(badWindowMessage(field, i-1, records.size()));
                         }
                     }
                     void finish() {
@@ -721,12 +721,12 @@ public class SelectAPI {
                 
                 void accept(List<LinkedRecord> records, T obj) {
                     class Sink implements Consumer<U> {
-                        int i = -1;
+                        int i = 0;
                         public void accept(U it) {
                             try {
-                                records.get(++i).out[index] = it;
+                                records.get(i++).out[index] = it;
                             } catch (IndexOutOfBoundsException e) {
-                                throw new IllegalStateException(badWindowMessage(field, i, records.size()));
+                                throw new IllegalStateException(badWindowMessage(field, i-1, records.size()));
                             }
                         }
                         void finish() {

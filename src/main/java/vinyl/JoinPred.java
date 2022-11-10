@@ -327,9 +327,9 @@ public class JoinPred {
                             }
                             
                             @Override
-                            public void search(Record left, Consumer<Record> rx) {
+                            public void search(Record left, Consumer<Record> sink) {
                                 for (Record right : rightSide)
-                                    rx.accept(right);
+                                    sink.accept(right);
                             }
                         };
                     }
@@ -344,7 +344,7 @@ public class JoinPred {
                             }
                             
                             @Override
-                            public void search(Record left, Consumer<Record> rx) {
+                            public void search(Record left, Consumer<Record> sink) {
                                 // Nothing matches
                             }
                         };
@@ -396,12 +396,12 @@ public class JoinPred {
                             if (pred.op == Binary.Op.EQ || pred.op == Binary.Op.CEQ) {
                                 output = new MapIndex<>(indexedRight) {
                                     @Override
-                                    public void search(Record left, Consumer<Record> rx) {
+                                    public void search(Record left, Consumer<Record> sink) {
                                         Object leftVal = leftMapper.apply(left);
                                         List<Record> records = indexedRight.get(leftVal);
                                         if (records != null)
                                             for (Record record : records)
-                                                rx.accept(record);
+                                                sink.accept(record);
                                     }
                                 };
                             }
@@ -409,12 +409,12 @@ public class JoinPred {
                                 Binary.Op op = pred.op;
                                 output = new MapIndex<>(indexedRight) {
                                     @Override
-                                    public void search(Record left, Consumer<Record> rx) {
+                                    public void search(Record left, Consumer<Record> sink) {
                                         Object leftVal = leftMapper.apply(left);
                                         indexedRight.forEach((rightVal, records) -> {
                                             if (op.test(leftVal, rightVal))
                                                 for (Record record : records)
-                                                    rx.accept(record);
+                                                    sink.accept(record);
                                         });
                                     }
                                 };
@@ -435,11 +435,11 @@ public class JoinPred {
                                 case GT: case GTE: {
                                     output = new MapIndex<>(indexedRight) {
                                         @Override
-                                        public void search(Record left, Consumer<Record> rx) {
+                                        public void search(Record left, Consumer<Record> sink) {
                                             Object leftVal = leftMapper.apply(left);
                                             indexedRight.headMap(leftVal, inclusive).forEach((v, records) -> {
                                                 for (Record record : records)
-                                                    rx.accept(record);
+                                                    sink.accept(record);
                                             });
                                         }
                                     };
@@ -448,11 +448,11 @@ public class JoinPred {
                                 case LT: case LTE: {
                                     output = new MapIndex<>(indexedRight) {
                                         @Override
-                                        public void search(Record left, Consumer<Record> rx) {
+                                        public void search(Record left, Consumer<Record> sink) {
                                             Object leftVal = leftMapper.apply(left);
                                             indexedRight.tailMap(leftVal, inclusive).forEach((v, records) -> {
                                                 for (Record record : records)
-                                                    rx.accept(record);
+                                                    sink.accept(record);
                                             });
                                         }
                                     };
@@ -480,10 +480,10 @@ public class JoinPred {
                 }
         
                 @Override
-                public void search(Record left, Consumer<Record> rx) {
+                public void search(Record left, Consumer<Record> sink) {
                     for (Record right : rightSide)
                         if (predicate.test(left, right))
-                            rx.accept(right);
+                            sink.accept(right);
                 }
             };
         }
@@ -511,10 +511,10 @@ public class JoinPred {
                 }
     
                 @Override
-                public void search(Record left, Consumer<Record> rx) {
+                public void search(Record left, Consumer<Record> sink) {
                     for (Record right : rightSide)
                         if (predicate.test(left, right))
-                            rx.accept(right);
+                            sink.accept(right);
                 }
             };
         }
@@ -532,10 +532,10 @@ public class JoinPred {
                 }
         
                 @Override
-                public void search(Record left, Consumer<Record> rx) {
+                public void search(Record left, Consumer<Record> sink) {
                     if (predicate.test(left))
                         for (Record right : rightSide)
-                            rx.accept(right);
+                            sink.accept(right);
                 }
             };
         }
@@ -564,9 +564,9 @@ public class JoinPred {
                 }
         
                 @Override
-                public void search(Record left, Consumer<Record> rx) {
+                public void search(Record left, Consumer<Record> sink) {
                     for (Record right : rightSide)
-                        rx.accept(right);
+                        sink.accept(right);
                 }
             };
         }

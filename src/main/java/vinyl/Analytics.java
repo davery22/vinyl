@@ -7,11 +7,9 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collector;
-import java.util.stream.Collectors;
 
 /**
- * Factory methods that create various useful analytic functions, of the form expected by {@link SelectAPI.Window}. Also
- * included are methods for converting between analytic and aggregate functions.
+ * Factory methods that create various useful analytic functions, of the form expected by {@link SelectAPI.Window}.
  */
 public class Analytics {
     private Analytics() {} // Prevent instantiation
@@ -28,57 +26,7 @@ public class Analytics {
         Objects.requireNonNull(collector);
         return (list, sink) -> sink.accept(list.stream().collect(collector));
     }
-    
-    /**
-     * Converts an analytic function to a "pseudo"-aggregate function that returns the last value emitted by the
-     * analytic function. If the analytic function emits no values (ie it is a misbehaving analytic function), the
-     * pseudo-aggregate function returns the value {@code null}.
-     *
-     * <p>The "pseudo"-aggregate function can be converted to a "full"-aggregate function by wrapping it in an
-     * appropriate {@code Collector}. For example:
-     *
-     * <pre>{@code
-     * Collectors.collectingAndThen(Collectors.toList(), Analytics.toPseudoAgg(analyticFunction))
-     * }</pre>
-     *
-     * <p>This specific collector can also be obtained from {@link #toAgg(BiConsumer)}, but it precludes reusing the
-     * collected list.
-     *
-     * @param mapper the analytic function
-     * @return a "pseudo"-aggregate function that returns the last value emitted by the analytic function
-     * @param <T> the analytic value type
-     */
-    public static <T> Function<List<Record>, T> toPseudoAgg(BiConsumer<? super List<Record>, Consumer<T>> mapper) {
-        Objects.requireNonNull(mapper);
-        class CaptureSink implements Consumer<T> {
-            T value;
-        
-            @Override
-            public void accept(T t) {
-                value = t;
-            }
-        }
-        return list -> {
-            CaptureSink sink = new CaptureSink();
-            mapper.accept(list, sink);
-            return sink.value;
-        };
-    }
-    
-    /**
-     * Converts an analytic function to an aggregate function (modeled as a {@code Collector}) that returns the last
-     * value emitted by the analytic function. If the analytic function emits no values (ie it is a misbehaving analytic
-     * function), the aggregate function returns the value {@code null}.
-     *
-     * @param mapper the analytic function
-     * @return an aggregate function that returns the last value emitted by the analytic function
-     * @param <T> the analytic value type
-     */
-    public static <T> Collector<Record, ?, T> toAgg(BiConsumer<? super List<Record>, Consumer<T>> mapper) {
-        Function<List<Record>, T> pseudoAgg = toPseudoAgg(mapper);
-        return Collectors.collectingAndThen(Collectors.toList(), pseudoAgg);
-    }
-    
+   
     /**
      * Returns an analytic function that emits a number for each record in the partition, by starting with the given
      * first number and incrementing by one for each record.
@@ -319,8 +267,9 @@ public class Analytics {
      * <p>The given percentile must be greater than or equal to {@code 0} and less than or equal to {@code 1}, otherwise
      * an {@link IllegalArgumentException} is thrown.
      *
-     * <p>This analytic function generally expects input records in the partition to be pre-sorted according to some
-     * comparator.
+     * <p>This analytic function generally expects input records in the partition to be pre-sorted according to a
+     * comparator that compares records based on the value that would be returned by applying the given function to the
+     * record.
      *
      * <p>This analytic function behaves similar to the {@code PERCENTILE_DISC} function in SQL.
      *
@@ -349,16 +298,17 @@ public class Analytics {
      * Returns an analytic function that emits one value for the partition, derived by interpolation from the values of
      * the records that are positioned closest to the given percentile's index, on either side. More specifically, the
      * percentile is multiplied by the last index in the partition, yielding an exact percentile index. Then a value is
-     * emitted by applying the given function to the records on either side of the percentile index, and interpolating a
-     * value between them based on the indexes' relative distances from the percentile index. If the percentile index is
-     * a mathematical integer, then interpolation can be skipped, as the percentile index will exactly match a single
-     * record index.
+     * emitted by applying the given function to the two records on either side of the percentile index, and
+     * interpolating a value between them based on the relative distance from the percentile index to each record index.
+     * If the percentile index is a mathematical integer, then interpolation can be skipped, as the percentile index
+     * will exactly match a single record index.
      *
      * <p>The given percentile must be greater than or equal to {@code 0} and less than or equal to {@code 1}, otherwise
      * an {@link IllegalArgumentException} is thrown.
      *
-     * <p>This analytic function generally expects input records in the partition to be pre-sorted according to some
-     * comparator.
+     * <p>This analytic function generally expects input records in the partition to be pre-sorted according to a
+     * comparator that compares records based on the value that would be returned by applying the given function to the
+     * record.
      *
      * <p>This analytic function behaves similar to the {@code PERCENTILE_CONT} function in SQL.
      *

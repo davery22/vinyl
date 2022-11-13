@@ -483,9 +483,7 @@ public class SelectAPI {
          */
         public <T> Window fields(Function<? super List<Record>, ? extends T> mapper,
                                  Consumer<Fields<T>> config) {
-            Objects.requireNonNull(mapper);
-            config.accept(new Fields<>(null, mapper));
-            return this;
+            return fields(null, mapper, config);
         }
     
         /**
@@ -499,8 +497,7 @@ public class SelectAPI {
          */
         public Window fields(Comparator<? super Record> comparator,
                              Consumer<Fields<List<Record>>> config) {
-            config.accept(new Fields<>(comparator, Function.identity()));
-            return this;
+            return fields(comparator, Function.identity(), config);
         }
     
         /**
@@ -535,8 +532,9 @@ public class SelectAPI {
         }
         
         void accept(List<LinkedRecord> records) {
-            // TODO: Process unordered window functions first? (to preserve original encounter order)
-            //  But encounter order would still be undefined so long as we feed window results into each other.
+            // It would be nice if we preserved encounter order for unordered window functions,
+            // but that would require processing all windows in the same pass instead of feeding them into each other,
+            // and that would be much more memory intensive.
             windowFnChildren.forEach(child -> child.accept(records));
         }
         
@@ -579,25 +577,7 @@ public class SelectAPI {
             void accept(List<LinkedRecord> records) {
                 if (comparator != null)
                     records.sort(comparator);
-                class Sink implements Consumer<T> {
-                    int i = 0;
-                    public void accept(T it) {
-                        try {
-                            records.get(i++).out[index] = it;
-                        } catch (IndexOutOfBoundsException e) {
-                            throw new IllegalStateException(badWindowMessage(field, i-1, records.size()));
-                        }
-                    }
-                    void finish() {
-                        if (i == 1) {
-                            Object first = records.get(0).out[index];
-                            records.forEach(record -> record.out[index] = first);
-                        } else if (i != records.size()) {
-                            throw new IllegalStateException(badWindowMessage(field, i, records.size()));
-                        }
-                    }
-                }
-                Sink sink = new Sink();
+                WindowSink<T> sink = new WindowSink<>(field, index, records);
                 mapper.accept(Collections.unmodifiableList(records), sink);
                 sink.finish();
             }
@@ -744,25 +724,7 @@ public class SelectAPI {
                 }
                 
                 void accept(List<LinkedRecord> records, T obj) {
-                    class Sink implements Consumer<U> {
-                        int i = 0;
-                        public void accept(U it) {
-                            try {
-                                records.get(i++).out[index] = it;
-                            } catch (IndexOutOfBoundsException e) {
-                                throw new IllegalStateException(badWindowMessage(field, i-1, records.size()));
-                            }
-                        }
-                        void finish() {
-                            if (i == 1) {
-                                Object first = records.get(0).out[index];
-                                records.forEach(record -> record.out[index] = first);
-                            } else if (i != records.size()) {
-                                throw new IllegalStateException(badWindowMessage(field, i, records.size()));
-                            }
-                        }
-                    }
-                    Sink sink = new Sink();
+                    WindowSink<U> sink = new WindowSink<>(field, index, records);
                     mapper.accept(obj, sink);
                     sink.finish();
                 }
@@ -779,5 +741,36 @@ public class SelectAPI {
     private static String badWindowMessage(Field<?> field, int emitted, int records) {
         return String.format("Analytic function for field [%s] must emit exactly one value, or one value per record; " +
                                  "emitted %d values for %d records", field, emitted, records);
+    }
+    
+    private static class WindowSink<T> implements Consumer<T> {
+        final Field<?> field;
+        final int index;
+        final List<LinkedRecord> records;
+        int i = 0;
+        
+        WindowSink(Field<?> field, int index, List<LinkedRecord> records) {
+            this.field = field;
+            this.index = index;
+            this.records = records;
+        }
+        
+        @Override
+        public void accept(T it) {
+            try {
+                records.get(i++).out[index] = it;
+            } catch (IndexOutOfBoundsException e) {
+                throw new IllegalStateException(badWindowMessage(field, i-1, records.size()));
+            }
+        }
+        
+        void finish() {
+            if (i == 1) {
+                Object first = records.get(0).out[index];
+                records.forEach(record -> record.out[index] = first);
+            } else if (i != records.size()) {
+                throw new IllegalStateException(badWindowMessage(field, i, records.size()));
+            }
+        }
     }
 }

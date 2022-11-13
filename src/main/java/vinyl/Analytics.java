@@ -224,17 +224,17 @@ public class Analytics {
         Objects.requireNonNull(comparator);
         return (list, sink) -> {
             Record prev = list.get(0);
-            double increment = 1d / list.size();
+            int size = list.size();
             int ties = 1;
-            for (int i = 1; i < list.size(); i++) {
+            for (int i = 1; i < size; i++)
                 if (comparator.compare(prev, prev = list.get(i)) == 0)
                     ties++;
                 else {
+                    double percentile = (double) i / size; // Divide each time to minimize FP error and match SQL behavior
                     for (; ties > 0; ties--)
-                        sink.accept(increment * i); // Minimize rounding error by multiplying original increment
+                        sink.accept(percentile);
                     ties = 1;
                 }
-            }
             for (; ties > 0; ties--)
                 sink.accept(1d);
         };
@@ -259,24 +259,19 @@ public class Analytics {
     public static BiConsumer<List<Record>, Consumer<Double>> percentRank(Comparator<? super Record> comparator) {
         Objects.requireNonNull(comparator);
         return (list, sink) -> {
-            if (list.size() == 1) {
-                sink.accept(0d);
-                return;
-            }
-            Record prev = list.get(0);
-            double increment = 1d / (list.size()-1);
             double percentile = 0d;
+            Record prev = list.get(0);
+            int size = list.size();
             int ties = 1;
-            for (int i = 1; i < list.size(); i++) {
+            for (int i = 1; i < size; i++)
                 if (comparator.compare(prev, prev = list.get(i)) == 0)
                     ties++;
                 else {
                     for (; ties > 0; ties--)
                         sink.accept(percentile);
                     ties = 1;
-                    percentile = increment * i; // Minimize rounding error by multiplying original increment
+                    percentile = (double) i / (size-1); // Divide each time to minimize FP error and match SQL behavior
                 }
-            }
             for (; ties > 0; ties--)
                 sink.accept(percentile);
         };
@@ -320,7 +315,7 @@ public class Analytics {
     
     /**
      * Returns an analytic function that emits one value for the partition, derived by interpolation from the values of
-     * the records that are positioned closest to the given percentile's index, on either side. More specifically, the
+     * the records that are positioned closest on either side of the given percentile's index. More specifically, the
      * percentile is multiplied by the last index in the partition, yielding an exact percentile index. Then a value is
      * emitted by applying the given function to the two records on either side of the percentile index, and
      * interpolating a value between them based on the relative distance from the percentile index to each record index.

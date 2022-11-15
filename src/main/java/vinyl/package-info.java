@@ -41,7 +41,7 @@
  *         .aggregate(aggregate -> aggregate
  *             .keyField(userAge)
  *             .aggField(countUsers, Collectors.counting())
- *             .aggField(avgAccountAge, Collectors.averagingLong(record -> record.get(userAccountAge))
+ *             .aggField(avgAccountAge, Collectors.averagingLong(record -> record.get(userAccountAge)))
  *         )
  *         .toRecordSet();
  * }</pre>

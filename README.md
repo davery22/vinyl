@@ -7,4 +7,4 @@ Streams. By leaning into existing JDK abstractions, Vinyl achieves seamless inte
 their efficiency and parallelism while introducing new avenues of flexibility. A carefully controlled API enables
 relational operations to prioritize safety without sacrificing brevity.
 
-For more information and examples, see the package documentation.
+For more information and examples, see the [package documentation](https://davery22.github.io/vinyl/javadoc/).

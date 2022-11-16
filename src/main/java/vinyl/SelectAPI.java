@@ -291,6 +291,7 @@ public class SelectAPI {
     /**
      * A sub-configurator used to define fields of a select operation that depend on a common intermediate result.
      *
+     * @see SelectAPI#fields(Function, Consumer)
      * @param <T> the intermediate result type
      */
     public class Fields<T> extends Mapper {
@@ -360,6 +361,8 @@ public class SelectAPI {
      * value per input record in the partition, which becomes the value of the field on the corresponding output record
      * from the partition. Alternatively, an analytic function may emit just one value for the partition, which becomes
      * the value of the field on all output records from the partition.
+     *
+     * @see SelectAPI#window(Consumer)
      */
     public class Window {
         final List<Mapper> keyMapperChildren = new ArrayList<>();
@@ -592,6 +595,7 @@ public class SelectAPI {
         /**
          * A sub-configurator used to define keys of a window that depend on a common intermediate result.
          *
+         * @see Window#keys(Function, Consumer)
          * @param <T> the intermediate result type
          */
         public class Keys<T> extends Mapper {
@@ -652,6 +656,7 @@ public class SelectAPI {
          * A sub-configurator used to define fields of a window that depend on a common partition ordering and/or a
          * common intermediate result.
          *
+         * @see Window#fields(Comparator, Function, Consumer)
          * @param <T> the intermediate result type
          */
         public class Fields<T> extends WindowFunction {

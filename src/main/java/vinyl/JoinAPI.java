@@ -916,6 +916,7 @@ public class JoinAPI {
          * A sub-configurator used to define output fields of a relational join operation that depend on a common
          * intermediate result.
          *
+         * @see Select#fields(BiFunction, Consumer)
          * @param <T> the intermediate result type
          */
         public class Fields<T> extends Mapper {

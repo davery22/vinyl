@@ -90,7 +90,7 @@
  * sub-configurators for handling isolated specifics of the overall operation. To demonstrate:
  *
  * <pre>{@code
- *     scoresStream
+ *     RecordStream stream = scoresStream
  *         .select(select -> select
  *             .field(points)
  *             .window(window -> window
@@ -100,13 +100,13 @@
  *                     .field(continuousMedian, Analytics.percentileCont(0.5, points::get))
  *                 )
  *             )
- *         )
+ *         );
  * }</pre>
  *
  * <p>Here, the {@code select}, {@code window}, and {@code fields} configurators (named after the methods that introduce
  * them) are used to configure the overall {@code select()} operation. The {@code window} configurator is a
  * sub-configurator of {@code select}, and the {@code fields} configurator is a sub-configurator of {@code window}.
- * Together these configurators define four fields {@code [points, averagePoints, discreteMedian, continuousMedian]} on
- * the resultant record-stream.
+ * Together these configurators define four fields on the resultant record-stream: {@code points},
+ * {@code averagePoints}, {@code discreteMedian}, {@code continuousMedian}.
  */
 package vinyl;

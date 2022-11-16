@@ -1257,6 +1257,45 @@ public class RecordStreamTest {
         assertEquals(expected, data);
     }
     
+    @Test
+    void testAggregateRoute1() {
+        RecordSet data = RecordStream.aux(IntStream.range(0, 100)).boxed()
+            .parallel()
+            .mapToRecord(into -> into.field(A_INT, i -> i))
+            .aggregate(aggregate -> aggregate
+                .keyField(A_INT, o -> o.get(A_INT)%10)
+                .<Long>route(
+                    (record, sink) -> {
+                        sink.accept(A_INT, 3L); // not a child - ignored
+                        sink.accept(B_LONG, (long) record.get(A_INT));
+                        sink.accept(C_LONG, 1L);
+                        sink.accept(C_LONG, 1L); // ok to send multiple values to same field
+                    },
+                    route -> route
+                        .aggField(B_LONG, Collectors.summingLong(i -> i))
+                        .aggField(C_LONG, Collectors.summingLong(i -> i))
+                        .aggField(D_LONG, Collectors.counting()) // nothing emitted to this field
+                )
+            )
+            .sorted()
+            .toRecordSet();
+        
+        RecordSet expected = unsafeRecordSet(new Object[][]{
+            { A_INT, B_LONG, C_LONG, D_LONG },
+            { 0, 450L, 20L, 0L },
+            { 1, 460L, 20L, 0L },
+            { 2, 470L, 20L, 0L },
+            { 3, 480L, 20L, 0L },
+            { 4, 490L, 20L, 0L },
+            { 5, 500L, 20L, 0L },
+            { 6, 510L, 20L, 0L },
+            { 7, 520L, 20L, 0L },
+            { 8, 530L, 20L, 0L },
+            { 9, 540L, 20L, 0L }
+        });
+        assertEquals(expected, data);
+    }
+    
     @SuppressWarnings({"unchecked", "rawtypes"})
     private RecordSet unsafeRecordSet(Object[][] arr) {
         Object[] fields = arr[0];

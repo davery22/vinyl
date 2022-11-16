@@ -178,7 +178,8 @@ public class AggregateAPI {
      * @return this configurator
      * @param <T> the result type of the function
      */
-    public <T> AggregateAPI keys(Function<? super Record, ? extends T> mapper, Consumer<Keys<T>> config) {
+    public <T> AggregateAPI keys(Function<? super Record, ? extends T> mapper,
+                                 Consumer<Keys<T>> config) {
         Objects.requireNonNull(mapper);
         config.accept(new Keys<>(mapper));
         return this;
@@ -194,9 +195,86 @@ public class AggregateAPI {
      * @return this configurator
      * @param <T> the result type of the aggregation
      */
-    public <T> AggregateAPI aggs(Collector<? super Record, ?, ? extends T> collector, Consumer<Aggs<T>> config) {
+    public <T> AggregateAPI aggs(Collector<? super Record, ?, ? extends T> collector,
+                                 Consumer<Aggs<T>> config) {
         Objects.requireNonNull(collector);
         config.accept(new Aggs<>(collector));
+        return this;
+    }
+    
+    /**
+     * Configures a sub-configurator, that may define (or redefine) fields as aggregates over values emitted to those
+     * fields by the given routing function. If no fields are defined by the sub-configurator, possibly due to later
+     * field redefinitions, the entire sub-configurator is discarded.
+     *
+     * <p>If the routing function emits to a field that is not defined by the sub-configurator, there is no effect. If
+     * the routing function emits multiple values to the same field, the field aggregates each value.
+     *
+     * <p>Routing is more general than, but can efficiently express, a SQL "pivot" operation. SQL pivot syntax is
+     * dialect-specific and not universally supported, but an example query might look something like:
+     *
+     * <pre>{@code
+     *     SELECT * FROM (
+     *         SELECT VendorId, EmployeeId, PurchaseAmount
+     *         FROM Purchases
+     *     )
+     *     PIVOT (
+     *         AVG(PurchaseAmount)
+     *         FOR EmployeeId IN (250 Emp1, 251 Emp2, 256 Emp3, 257 Emp4, 260 Emp5)
+     *     )
+     * }</pre>
+     *
+     * <p>Analogous Java code (with no attempt to remove duplication) might look like:
+     *
+     * <pre>{@code
+     *     RecordStream stream = purchasesStream
+     *         .aggregate(aggregate -> aggregate
+     *             .keyField(vendorId)
+     *             .<Long>route(
+     *                 (record, sink) -> {
+     *                     Long amount = record.get(purchaseAmount);
+     *                     switch (record.get(employeeId)) {
+     *                         case 250: sink.accept(emp1, amount); break;
+     *                         case 251: sink.accept(emp2, amount); break;
+     *                         case 256: sink.accept(emp3, amount); break;
+     *                         case 257: sink.accept(emp4, amount); break;
+     *                         case 260: sink.accept(emp5, amount); break;
+     *                     }
+     *                 },
+     *                 route -> route
+     *                     .aggField(emp1, Collectors.averagingLong(amount -> amount))
+     *                     .aggField(emp2, Collectors.averagingLong(amount -> amount))
+     *                     .aggField(emp3, Collectors.averagingLong(amount -> amount))
+     *                     .aggField(emp4, Collectors.averagingLong(amount -> amount))
+     *                     .aggField(emp5, Collectors.averagingLong(amount -> amount))
+     *             )
+     *         );
+     * }</pre>
+     *
+     * <p>Or, with some refactoring:
+     *
+     * <pre>{@code
+     *     Map<Integer, Field<Double>> empById = Map.of(250, emp1, 251, emp2, 256, emp3, 257, emp4, 260, emp5);
+     *
+     *     RecordStream stream = purchasesStream
+     *         .aggregate(aggregate -> aggregate
+     *             .keyField(vendorId)
+     *             .<Long>route(
+     *                 (record, sink) -> sink.accept(empById.get(record.get(employeeId)), record.get(purchaseAmount)),
+     *                 route -> empById.forEach((id, emp) -> route.aggField(emp, Collectors.averagingLong(amount -> amount)))
+     *             )
+     *         );
+     * }</pre>
+     *
+     * @param router the routing function
+     * @param config a consumer of the sub-configurator
+     * @return this configurator
+     * @param <T> the type of values emitted by the routing function
+     */
+    public <T> AggregateAPI route(BiConsumer<? super Record, ? super BiConsumer<Field<?>, T>> router,
+                                  Consumer<Route<T>> config) {
+        Objects.requireNonNull(router);
+        config.accept(new Route<>(router));
         return this;
     }
     
@@ -254,10 +332,18 @@ public class AggregateAPI {
                     keyIndexes.add(j);
                     indexByField.put(def.field, j++);
                 }
-            } else {
-                assert definition instanceof Aggs.AggObjectMapper;
+            } else if (definition instanceof Aggs.AggObjectMapper) {
                 Aggs<?>.AggObjectMapper def = (Aggs<?>.AggObjectMapper) definition;
                 Aggs<?> parent = def.addToParent();
+                if (parent != null)
+                    finalCollectors.add(parent);
+                def.localIndex = aggIndexes.size();
+                aggIndexes.add(j);
+                indexByField.put(def.field, j++);
+            } else {
+                assert definition instanceof Route.RoutedObjectCollector;
+                Route<?>.RoutedObjectCollector def = (Route<?>.RoutedObjectCollector) definition;
+                Route<?> parent = def.addToParent();
                 if (parent != null)
                     finalCollectors.add(parent);
                 def.localIndex = aggIndexes.size();
@@ -430,6 +516,7 @@ public class AggregateAPI {
     /**
      * A sub-configurator used to define keys of an aggregate operation that depend on a common intermediate result.
      *
+     * @see AggregateAPI#keys(Function, Consumer)
      * @param <T> the intermediate result type
      */
     public class Keys<T> extends Mapper {
@@ -510,6 +597,7 @@ public class AggregateAPI {
      * A sub-configurator used to define fields of an aggregate operation that depend on a common intermediate
      * aggregation result.
      *
+     * @see AggregateAPI#aggs(Collector, Consumer)
      * @param <T> the intermediate result type
      */
     public class Aggs<T> extends CollectorBox {
@@ -571,6 +659,122 @@ public class AggregateAPI {
                 boolean isParentUnseen = Aggs.this.children.isEmpty();
                 Aggs.this.children.add(this);
                 return isParentUnseen ? Aggs.this : null;
+            }
+        }
+    }
+    
+    /**
+     * A sub-configurator used to define fields of an aggregate operation that aggregate over values emitted to them by
+     * a shared routing function.
+     *
+     * @see AggregateAPI#route(BiConsumer, Consumer)
+     * @param <T> the type of values emitted by the routing function
+     */
+    public class Route<T> extends CollectorBox {
+        final BiConsumer<? super Record, ? super BiConsumer<Field<?>, T>> router;
+        final List<RoutedObjectCollector> children = new ArrayList<>();
+        
+        Route(BiConsumer<? super Record, ? super BiConsumer<Field<?>, T>> router) {
+            this.router = router;
+        }
+    
+        /**
+         * Defines (or redefines) the given field as an aggregate over values emitted to the field by this
+         * sub-configurator's routing function.
+         *
+         * @param field the field
+         * @param collector the collector that describes the aggregate operation over input values
+         * @return this configurator
+         * @param <U> the value type of the field
+         */
+        public <U> Route<T> aggField(Field<U> field, Collector<? super T, ?, ? extends U> collector) {
+            Objects.requireNonNull(field);
+            Objects.requireNonNull(collector);
+            int index = indexByField.computeIfAbsent(field, k -> definitions.size());
+            RoutedObjectCollector def = new RoutedObjectCollector(field, collector);
+            if (index == definitions.size())
+                definitions.add(def);
+            else
+                definitions.set(index, def);
+            return this;
+        }
+        
+        // TODO: Optimize by reusing the outer collector's array from the start,
+        //  instead of flattening this collector's array into it at the end.
+        
+        @Override
+        Collector<? super Record, ?, ?> collector() {
+            int size = children.size();
+            Supplier<?>[] suppliers = new Supplier[size];
+            BiConsumer<?, ?>[] accumulators = new BiConsumer[size];
+            BinaryOperator<?>[] combiners = new BinaryOperator[size];
+            Function<?, ?>[] finishers = new Function[size];
+            Map<Field<?>, Integer> indexByField = new HashMap<>(size);
+    
+            for (int i = 0; i < size; i++) {
+                Collector<?, ?, ?> collector = children.get(i).collector;
+                suppliers[i] = collector.supplier();
+                accumulators[i] = collector.accumulator();
+                combiners[i] = collector.combiner();
+                finishers[i] = collector.finisher();
+                indexByField.put(children.get(i).field, i);
+            }
+            
+            return Collector.of(
+                () -> {
+                    Object[] arr = new Object[size+1];
+                    for (int i = 0; i < size; i++)
+                        arr[i] = suppliers[i].get();
+                    // Attach sink to collector state to avoid repetitive creation in the accumulator
+                    BiConsumer<Field<?>, T> sink = (key, value) -> {
+                        Integer i = indexByField.get(key);
+                        if (i != null)
+                            accumulators[i].accept(cast(arr[i]), cast(value));
+                    };
+                    arr[size] = sink;
+                    return arr;
+                },
+                (a, t) -> router.accept(t, cast(a[size])),
+                (a, b) -> {
+                    for (int i = 0; i < size; i++)
+                        a[i] = combiners[i].apply(cast(a[i]), cast(b[i]));
+                    return a;
+                },
+                a -> {
+                    // Result includes the sink in the last position, but we just ignore it when populating end-array
+                    // values in the accept() override.
+                    for (int i = 0; i < size; i++)
+                        a[i] = finishers[i].apply(cast(a[i]));
+                    return a;
+                }
+            );
+        }
+        
+        @Override
+        void accept(Object obj, Object[] arr) {
+            Object[] childValues = (Object[]) obj;
+            for (int i = 0; i < children.size(); i++)
+                children.get(i).accept(childValues[i], arr);
+        }
+        
+        private class RoutedObjectCollector {
+            final Field<?> field;
+            final Collector<? super T, ?, ?> collector;
+            int localIndex;
+        
+            RoutedObjectCollector(Field<?> field, Collector<? super T, ?, ?> collector) {
+                this.field = field;
+                this.collector = collector;
+            }
+        
+            void accept(Object obj, Object[] arr) {
+                arr[localIndex] = obj;
+            }
+            
+            Route<T> addToParent() {
+                boolean isParentUnseen = Route.this.children.isEmpty();
+                Route.this.children.add(this);
+                return isParentUnseen ? Route.this : null;
             }
         }
     }

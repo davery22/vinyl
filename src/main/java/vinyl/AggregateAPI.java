@@ -24,6 +24,9 @@
 
 package vinyl;
 
+import vinyl.Record.RecursiveRecord;
+import vinyl.Record.Redirect;
+
 import java.util.*;
 import java.util.function.*;
 import java.util.stream.Collector;
@@ -169,6 +172,29 @@ public class AggregateAPI {
     }
     
     /**
+     * Defines (or redefines) the given field as the application of the given function to each <em>output</em> record.
+     * The field may reference other output fields on the same record, including other post-fields, as long as it does
+     * not reference itself (including transitively). If a reference cycle is detected during evaluation, an
+     * {@link IllegalStateException} will be thrown.
+     *
+     * @param field the field
+     * @param mapper a function to apply to each <em>output</em> record
+     * @return this configurator
+     * @param <T> the value type of the field
+     */
+    public <T> AggregateAPI postField(Field<T> field, Function<? super Record, ? extends T> mapper) {
+        Objects.requireNonNull(field);
+        Objects.requireNonNull(mapper);
+        int index = indexByField.computeIfAbsent(field, k -> definitions.size());
+        PostMapper def = new PostMapper(field, mapper);
+        if (index == definitions.size())
+            definitions.add(def);
+        else
+            definitions.set(index, def);
+        return this;
+    }
+    
+    /**
      * Configures a sub-configurator, that may define (or redefine) keys in terms of the result of applying the given
      * function to each input record. If no keys are defined by the sub-configurator, possibly due to later field
      * redefinitions, the entire sub-configurator is discarded.
@@ -294,6 +320,7 @@ public class AggregateAPI {
         List<Integer> keyIndexes = new ArrayList<>();
         List<Integer> aggIndexes = new ArrayList<>();
         List<Mapper> finalMappers = new ArrayList<>();
+        List<PostMapper> finalPostMappers = new ArrayList<>();
         List<CollectorBox> finalCollectors = new ArrayList<>();
         boolean hasTempKeys = false;
         
@@ -312,13 +339,21 @@ public class AggregateAPI {
                     keyIndexes.add(j);
                     indexByField.put(def.field, j++);
                 }
-            } else if (definition instanceof AggRecordCollector) {
+            }
+            else if (definition instanceof PostMapper) {
+                PostMapper def = (PostMapper) definition;
+                finalPostMappers.add(def);
+                def.index = j;
+                indexByField.put(def.field, j++);
+            }
+            else if (definition instanceof AggRecordCollector) {
                 AggRecordCollector def = (AggRecordCollector) definition;
                 finalCollectors.add(def);
                 def.localIndex = aggIndexes.size();
                 aggIndexes.add(j);
                 indexByField.put(def.field, j++);
-            } else if (definition instanceof Keys.KeyObjectMapper) {
+            }
+            else if (definition instanceof Keys.KeyObjectMapper) {
                 Keys<?>.KeyObjectMapper def = (Keys<?>.KeyObjectMapper) definition;
                 Keys<?> parent = def.addToParent();
                 if (parent != null)
@@ -332,7 +367,8 @@ public class AggregateAPI {
                     keyIndexes.add(j);
                     indexByField.put(def.field, j++);
                 }
-            } else if (definition instanceof Aggs.AggObjectMapper) {
+            }
+            else if (definition instanceof Aggs.AggObjectMapper) {
                 Aggs<?>.AggObjectMapper def = (Aggs<?>.AggObjectMapper) definition;
                 Aggs<?> parent = def.addToParent();
                 if (parent != null)
@@ -340,7 +376,8 @@ public class AggregateAPI {
                 def.localIndex = aggIndexes.size();
                 aggIndexes.add(j);
                 indexByField.put(def.field, j++);
-            } else {
+            }
+            else {
                 assert definition instanceof Route.RoutedObjectCollector;
                 Route<?>.RoutedObjectCollector def = (Route<?>.RoutedObjectCollector) definition;
                 Route<?> parent = def.addToParent();
@@ -400,6 +437,16 @@ public class AggregateAPI {
                         return new Record(nextHeader, arr);
                     });
         }
+    
+        if (!finalPostMappers.isEmpty())
+            nextStream = nextStream.peek(out -> {
+                RecursiveRecord record = new RecursiveRecord(nextHeader, out.values);
+                for (PostMapper mapper : finalPostMappers)
+                    out.values[mapper.index] = new Redirect(mapper.mapper);
+                for (PostMapper mapper : finalPostMappers)
+                    record.eval(mapper.index);
+                record.isDone = true; // Ensure proper behavior for fields that may have captured the record itself
+            });
         
         return new RecordStream(nextHeader, nextStream);
     }
@@ -474,6 +521,17 @@ public class AggregateAPI {
         abstract void accept(Object obj, Object[] arr);
     }
     
+    private static class PostMapper {
+        final Field<?> field;
+        final Function<? super Record, ?> mapper;
+        int index;
+        
+        PostMapper(Field<?> field, Function<? super Record, ?> mapper) {
+            this.field = field;
+            this.mapper = mapper;
+        }
+    }
+    
     private static class KeyRecordMapper extends Mapper {
         final boolean isTemp;
         final Field<?> field;
@@ -526,7 +584,16 @@ public class AggregateAPI {
         Keys(Function<? super Record, ? extends T> mapper) {
             this.mapper = mapper;
         }
-    
+        
+        /**
+         * Returns the parent of this sub-configurator.
+         *
+         * @return the parent of this sub-configurator
+         */
+        public AggregateAPI parent() {
+            return AggregateAPI.this;
+        }
+        
         /**
          * Defines a key as the application of the given function to this sub-configurator's intermediate result.
          *
@@ -607,7 +674,16 @@ public class AggregateAPI {
         Aggs(Collector<? super Record, ?, ? extends T> collector) {
             this.collector = collector;
         }
-    
+        
+        /**
+         * Returns the parent of this sub-configurator.
+         *
+         * @return the parent of this sub-configurator
+         */
+        public AggregateAPI parent() {
+            return AggregateAPI.this;
+        }
+        
         /**
          * Defines (or redefines) a field as the application of the given function to this sub-configurator's
          * intermediate aggregation result.
@@ -676,6 +752,15 @@ public class AggregateAPI {
         
         Route(BiConsumer<? super Record, ? super BiConsumer<Field<?>, T>> router) {
             this.router = router;
+        }
+    
+        /**
+         * Returns the parent of this sub-configurator.
+         *
+         * @return the parent of this sub-configurator
+         */
+        public AggregateAPI parent() {
+            return AggregateAPI.this;
         }
     
         /**

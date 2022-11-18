@@ -25,6 +25,7 @@
 package vinyl;
 
 import java.util.*;
+import java.util.function.Function;
 
 /**
  * A shallowly immutable carrier for a fixed set of values, determined by the record {@link Header header}. Values are
@@ -189,8 +190,8 @@ public class Record {
      */
     static class FlaggedRecord extends Record {
         // This field may be modified by un-synchronized concurrent writers during a parallel join. This is safe,
-        // because all writers try to set it to the same value (true), and the only reader waits for all writers to
-        // terminate (so all writes are visible to it).
+        // because all writers write the same value (true), and the only reader waits for all writers to terminate (so
+        // all writes are visible to it).
         boolean isMatched = false;
         final Record record;
         
@@ -213,6 +214,137 @@ public class Record {
         @Override
         public boolean isNil() {
             return true;
+        }
+    }
+    
+    /**
+     * Special record type used ephemerally by "post" fields.
+     */
+    static class RecursiveRecord extends Record {
+        boolean isDone = false;
+        
+        RecursiveRecord(Header header, Object[] values) {
+            super(header, values);
+        }
+        
+        @SuppressWarnings("unchecked")
+        @Override
+        public <T> T get(Field<T> field) {
+            int index = header.indexOf(field);
+            if (index == -1)
+                throw new NoSuchElementException("Invalid field: " + field);
+            return (T) eval(index);
+        }
+        
+        @SuppressWarnings("unchecked")
+        @Override
+        public <T> T get(FieldPin<T> pin) {
+            try {
+                if (header.fields[pin.index] == pin.field)
+                    return (T) eval(pin.index);
+            } catch (ArrayIndexOutOfBoundsException e) {
+                // Fall-through
+            }
+            throw new NoSuchElementException("Invalid field-pin: " + pin);
+        }
+        
+        Object eval(int index) {
+            Object value = values[index];
+            if (!(value instanceof Redirect))
+                return value;
+            Redirect redirect = (Redirect) value;
+            Function<? super Record, ?> mapper = redirect.mapper;
+            if (mapper == null)
+                throw new CycleException(header.fields[index]);
+            redirect.mapper = null;
+            try {
+                value = mapper.apply(this);
+            } catch (CycleException e) {
+                throw e.prepend(header.fields[index]);
+            }
+            return values[index] = value;
+        }
+        
+        @Override
+        public List<Object> values() {
+            if (isDone)
+                return super.values();
+            throw findFirstCycle();
+        }
+        
+        @Override
+        public boolean equals(Object o) {
+            if (isDone)
+                return super.equals(o);
+            throw findFirstCycle();
+        }
+        
+        @Override
+        public int hashCode() {
+            if (isDone)
+                return super.hashCode();
+            throw findFirstCycle();
+        }
+        
+        @Override
+        public String toString() {
+            if (isDone)
+                return super.toString();
+            throw findFirstCycle();
+        }
+        
+        private CycleException findFirstCycle() {
+            for (int i = 0; i < values.length; i++) {
+                if (values[i] instanceof Redirect && ((Redirect) values[i]).mapper == null)
+                    return new CycleException(header.fields[i]);
+            }
+            throw new AssertionError(); // unreachable
+        }
+    }
+    
+    /**
+     * Used by RecursiveRecord to capture unevaluated values.
+     */
+    static class Redirect {
+        Function<? super Record, ?> mapper;
+        
+        Redirect(Function<? super Record, ?> mapper) {
+            this.mapper = mapper;
+        }
+    }
+    
+    static class CycleException extends IllegalStateException {
+        private final LinkedList<Field<?>> knownNodes;
+        
+        CycleException(Field<?> head) {
+            this.knownNodes = new LinkedList<>();
+            prepend(head);
+        }
+        
+        CycleException prepend(Field<?> head) {
+            this.knownNodes.addFirst(head);
+            return this;
+        }
+    
+        @Override
+        public String getMessage() {
+            boolean foundCycle = false;
+            Field<?> lastField = knownNodes.getLast();
+            StringBuilder sb = new StringBuilder("Known fields in cycle: ");
+            String delimiter = "";
+            for (Iterator<Field<?>> iter = knownNodes.iterator(); iter.hasNext(); ) {
+                Field<?> field = iter.next();
+                sb.append(delimiter);
+                if (field == lastField && iter.hasNext()) {
+                    foundCycle = true;
+                    sb.append('(');
+                }
+                sb.append(field);
+                delimiter = " -> ";
+            }
+            if (foundCycle)
+                sb.append(')');
+            return sb.toString();
         }
     }
 }

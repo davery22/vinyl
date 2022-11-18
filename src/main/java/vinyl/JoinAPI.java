@@ -26,6 +26,8 @@ package vinyl;
 
 import vinyl.Record.FlaggedRecord;
 import vinyl.Record.NilRecord;
+import vinyl.Record.RecursiveRecord;
+import vinyl.Record.Redirect;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -85,10 +87,13 @@ public class JoinAPI {
         // Final mappers will combine ObjectMapper children into their parent.
         Map<Field<?>, Integer> finalIndexByField = new HashMap<>(select.indexByField);
         List<Mapper> finalMappers = new ArrayList<>();
+        List<Select.PostMapper> finalPostMappers = new ArrayList<>();
     
         for (Object definition : select.definitions) {
             if (definition instanceof Select.RecordMapper)
                 finalMappers.add((Select.RecordMapper) definition);
+            else if (definition instanceof Select.PostMapper)
+                finalPostMappers.add((Select.PostMapper) definition);
             else {
                 assert definition instanceof Select.Fields.ObjectMapper;
                 Select.Fields<?>.ObjectMapper def = (Select.Fields<?>.ObjectMapper) definition;
@@ -163,6 +168,16 @@ public class JoinAPI {
                 s.isParallel()
             ).onClose(s::close);
         }
+    
+        if (!finalPostMappers.isEmpty())
+            nextStream = nextStream.peek(out -> {
+                Record.RecursiveRecord record = new RecursiveRecord(nextHeader, out.values);
+                for (Select.PostMapper mapper : finalPostMappers)
+                    out.values[mapper.index] = new Redirect(mapper.mapper);
+                for (Select.PostMapper mapper : finalPostMappers)
+                    record.eval(mapper.index);
+                record.isDone = true; // Ensure proper behavior for fields that may have captured the record itself
+            });
         
         return new RecordStream(nextHeader, nextStream);
     }
@@ -882,6 +897,29 @@ public class JoinAPI {
         }
     
         /**
+         * Defines (or redefines) the given field as the application of the given function to each <em>output</em>
+         * record. The field may reference other output fields on the same record, including other post-fields, as long
+         * as it does not reference itself (including transitively). If a reference cycle is detected during evaluation,
+         * an {@link IllegalStateException} will be thrown.
+         *
+         * @param field the field
+         * @param mapper a function to apply to each <em>output</em> record
+         * @return this configurator
+         * @param <T> the value type of the field
+         */
+        public <T> Select postField(Field<T> field, Function<? super Record, ? extends T> mapper) {
+            Objects.requireNonNull(field);
+            Objects.requireNonNull(mapper);
+            int index = indexByField.computeIfAbsent(field, k -> definitions.size());
+            PostMapper def = new PostMapper(index, mapper);
+            if (index == definitions.size())
+                definitions.add(def);
+            else
+                definitions.set(index, def);
+            return this;
+        }
+    
+        /**
          * Configures a sub-configurator, that may define (or redefine) fields in terms of the result of applying the
          * given function to each pair of left and right-side input records. If no fields are defined by the
          * sub-configurator, possibly due to later field redefinitions, the entire sub-configurator is discarded.
@@ -895,6 +933,16 @@ public class JoinAPI {
             Objects.requireNonNull(mapper);
             config.accept(new Fields<>(mapper));
             return this;
+        }
+        
+        private class PostMapper {
+            final int index;
+            final Function<? super Record, ?> mapper;
+            
+            PostMapper(int index, Function<? super Record, ?> mapper) {
+                this.index = index;
+                this.mapper = mapper;
+            }
         }
         
         private class RecordMapper extends Mapper {
@@ -926,7 +974,16 @@ public class JoinAPI {
             Fields(BiFunction<? super Record, ? super Record, ? extends T> mapper) {
                 this.mapper = mapper;
             }
-    
+            
+            /**
+             * Returns the parent of this sub-configurator.
+             *
+             * @return the parent of this sub-configurator
+             */
+            public Select parent() {
+                return Select.this;
+            }
+            
             /**
              * Defines (or redefines) the given field as the application of the given function to this
              * sub-configurator's intermediate result.

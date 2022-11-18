@@ -25,6 +25,8 @@
 package vinyl;
 
 import vinyl.Record.LinkedRecord;
+import vinyl.Record.RecursiveRecord;
+import vinyl.Record.Redirect;
 
 import java.util.*;
 import java.util.function.BiConsumer;
@@ -135,6 +137,29 @@ public class SelectAPI {
     }
     
     /**
+     * Defines (or redefines) the given field as the application of the given function to each <em>output</em> record.
+     * The field may reference other output fields on the same record, including other post-fields, as long as it does
+     * not reference itself (including transitively). If a reference cycle is detected during evaluation, an
+     * {@link IllegalStateException} will be thrown.
+     *
+     * @param field the field
+     * @param mapper a function to apply to each <em>output</em> record
+     * @return this configurator
+     * @param <T> the value type of the field
+     */
+    public <T> SelectAPI postField(Field<T> field, Function<? super Record, ? extends T> mapper) {
+        Objects.requireNonNull(field);
+        Objects.requireNonNull(mapper);
+        int index = indexByField.computeIfAbsent(field, k -> definitions.size());
+        PostMapper def = new PostMapper(index, mapper);
+        if (index == definitions.size())
+            definitions.add(def);
+        else
+            definitions.set(index, def);
+        return this;
+    }
+    
+    /**
      * Configures a sub-configurator, that may define (or redefine) fields in terms of the result of applying the given
      * function to each input record. If no fields are defined by the sub-configurator, possibly due to later field
      * redefinitions, the entire sub-configurator is discarded.
@@ -169,23 +194,28 @@ public class SelectAPI {
         // Avoid picking up side-effects from bad-actor callbacks.
         // Final mappers will combine ObjectMapper children into their parent.
         Map<Field<?>, Integer> finalIndexByField = new HashMap<>(indexByField);
+        List<PostMapper> finalPostMappers = new ArrayList<>();
         List<Mapper> finalMappers = new ArrayList<>();
         List<Window> finalWindows = new ArrayList<>();
         
         for (Object definition : definitions) {
             if (definition instanceof RecordMapper)
                 finalMappers.add((RecordMapper) definition);
+            else if (definition instanceof PostMapper)
+                finalPostMappers.add((PostMapper) definition);
             else if (definition instanceof Fields.ObjectMapper) {
                 Fields<?>.ObjectMapper def = (Fields<?>.ObjectMapper) definition;
                 Fields<?> parent = def.addToParent();
                 if (parent != null)
                     finalMappers.add(parent);
-            } else if (definition instanceof Window.FieldRecordMapper) {
+            }
+            else if (definition instanceof Window.FieldRecordMapper) {
                 Window.FieldRecordMapper<?> def = (Window.FieldRecordMapper<?>) definition;
                 Window parent = def.addToParent();
                 if (parent != null)
                     finalWindows.add(parent);
-            } else {
+            }
+            else {
                 assert definition instanceof Window.Fields.FieldObjectMapper;
                 Window.Fields<?>.FieldObjectMapper<?> def = (Window.Fields<?>.FieldObjectMapper<?>) definition;
                 Window parent = def.addToParent();
@@ -206,7 +236,7 @@ public class SelectAPI {
                     mapper.accept(record, arr);
                 return new Record(nextHeader, arr);
             });
-        else {
+        else
             nextStream = streamWindows(stream.stream.map(record -> new LinkedRecord(record, new Object[size])),
                                        finalWindows)
                 .map(record -> {
@@ -215,7 +245,16 @@ public class SelectAPI {
                         mapper.accept(record, arr);
                     return new Record(nextHeader, arr);
                 });
-        }
+        
+        if (!finalPostMappers.isEmpty())
+            nextStream = nextStream.peek(out -> {
+                RecursiveRecord record = new RecursiveRecord(nextHeader, out.values);
+                for (PostMapper mapper : finalPostMappers)
+                    out.values[mapper.index] = new Redirect(mapper.mapper);
+                for (PostMapper mapper : finalPostMappers)
+                    record.eval(mapper.index);
+                record.isDone = true; // Ensure proper behavior for fields that may have captured the record itself
+            });
         
         return new RecordStream(nextHeader, nextStream);
     }
@@ -236,22 +275,21 @@ public class SelectAPI {
                 Function<Record, List<?>> classifier = classifierFor(window.keyMapperChildren.toArray(new Mapper[0]), window.keyCount);
                 collectors.add(Collectors.groupingBy(classifier, Collectors.toList()));
             }
-        Function<Collection<List<LinkedRecord>>, Stream<List<LinkedRecord>>> toStream =
-            stream.isParallel() ? Collection::parallelStream : Collection::stream;
+        boolean isParallel = stream.isParallel();
         return StreamSupport.stream(
             () -> {
                 // Process windows sequentially to minimize memory usage.
                 Stream<LinkedRecord> curr = stream;
                 for (int i = 0; ; i++) {
                     Collection<List<LinkedRecord>> partitions = curr.collect(collectors.get(i)).values();
-                    Stream<List<LinkedRecord>> next = toStream.apply(partitions).peek(windows.get(i)::accept);
+                    Stream<List<LinkedRecord>> next = (isParallel ? partitions.parallelStream() : partitions.stream()).peek(windows.get(i)::accept);
                     if (i == windows.size()-1) // Optimization: Return the values stream spliterator, so that we can report Spliterator.SIZED
                         return next.spliterator();
                     curr = next.flatMap(Collection::stream);
                 }
             },
             Spliterator.SIZED | Spliterator.NONNULL | Spliterator.IMMUTABLE,
-            stream.isParallel()
+            isParallel
         ).flatMap(Collection::stream)
             .onClose(stream::close);
     }
@@ -271,6 +309,16 @@ public class SelectAPI {
     
     private abstract static class WindowFunction {
         abstract void accept(List<LinkedRecord> records);
+    }
+    
+    private static class PostMapper {
+        final int index;
+        final Function<? super Record, ?> mapper;
+        
+        PostMapper(int index, Function<? super Record, ?> mapper) {
+            this.index = index;
+            this.mapper = mapper;
+        }
     }
     
     private static class RecordMapper extends Mapper {
@@ -301,7 +349,16 @@ public class SelectAPI {
         Fields(Function<? super Record, ? extends T> mapper) {
             this.mapper = mapper;
         }
-    
+        
+        /**
+         * Returns the parent of this sub-configurator.
+         *
+         * @return the parent of this sub-configurator
+         */
+        public SelectAPI parent() {
+            return SelectAPI.this;
+        }
+        
         /**
          * Defines (or redefines) the given field as the application of the given function to this sub-configurator's
          * intermediate result.
@@ -370,7 +427,16 @@ public class SelectAPI {
         int keyCount = 0;
         
         Window() {} // Prevent default public constructor
-    
+        
+        /**
+         * Returns the parent of this sub-configurator.
+         *
+         * @return the parent of this sub-configurator
+         */
+        public SelectAPI parent() {
+            return SelectAPI.this;
+        }
+        
         /**
          * Defines a key as the lookup of the given field on each input record.
          *
@@ -605,7 +671,16 @@ public class SelectAPI {
             Keys(Function<? super Record, ? extends T> mapper) {
                 this.mapper = mapper;
             }
-    
+            
+            /**
+             * Returns the parent of this sub-configurator.
+             *
+             * @return the parent of this sub-configurator
+             */
+            public Window parent() {
+                return Window.this;
+            }
+            
             /**
              * Defines a key as the application of the given function to this sub-configurator's intermediate result.
              *
@@ -668,6 +743,15 @@ public class SelectAPI {
                    Function<? super List<Record>, ? extends T> mapper) {
                 this.comparator = comparator;
                 this.mapper = mapper;
+            }
+            
+            /**
+             * Returns the parent of this sub-configurator.
+             *
+             * @return the parent of this sub-configurator
+             */
+            public Window parent() {
+                return Window.this;
             }
     
             /**

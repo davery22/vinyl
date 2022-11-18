@@ -27,6 +27,8 @@ package vinyl;
 import org.junit.jupiter.api.Test;
 
 import java.util.*;
+import java.util.function.Function;
+import java.util.function.ToLongBiFunction;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -1292,6 +1294,192 @@ public class RecordStreamTest {
             { 7, 520L, 20L, 0L },
             { 8, 530L, 20L, 0L },
             { 9, 540L, 20L, 0L }
+        });
+        assertEquals(expected, data);
+    }
+    
+    @Test
+    void testSelectPostFields() {
+        RecordSet data = RecordStream.aux(IntStream.range(0, 10)).boxed()
+            .mapToRecord(into -> into.field(A_INT, i -> i))
+            .select(select -> select
+                .field(A_INT)
+                .postField(B_INT, o -> o.get(A_INT) + o.get(C_INT))
+                .postField(C_INT, o -> o.get(A_INT) + o.get(D_INT))
+                .postField(D_INT, o -> 1)
+            )
+            .toRecordSet();
+        
+        RecordSet expected = unsafeRecordSet(new Object[][]{
+            { A_INT, B_INT, C_INT, D_INT },
+            { 0,  1,  1, 1 },
+            { 1,  3,  2, 1 },
+            { 2,  5,  3, 1 },
+            { 3,  7,  4, 1 },
+            { 4,  9,  5, 1 },
+            { 5, 11,  6, 1 },
+            { 6, 13,  7, 1 },
+            { 7, 15,  8, 1 },
+            { 8, 17,  9, 1 },
+            { 9, 19, 10, 1 },
+        });
+        assertEquals(expected, data);
+    }
+    
+    // Constructors are not strictly necessary, but are used to disambiguate field names.
+    private static class TableRef {
+        final RowRef row1;
+        final RowRef row2;
+        final RowRef row3;
+        
+        TableRef(String id) {
+            this.row1 = new RowRef(id + ".row1");
+            this.row2 = new RowRef(id + ".row2");
+            this.row3 = new RowRef(id + ".row3");
+        }
+        
+        private static class RowRef {
+            final Field<String> name;
+            final Field<Long> balance1;
+            final Field<Long> balance2;
+            final Field<Long> balance3;
+            
+            RowRef(String id) {
+                this.name = new Field<>(id + ".name");
+                this.balance1 = new Field<>(id + ".balance1");
+                this.balance2 = new Field<>(id + ".balance2");
+                this.balance3 = new Field<>(id + ".balance3");
+            }
+        }
+    }
+    
+    // This could be generated from TableRef using annotation processing.
+    private static class Table {
+        final Row row1;
+        final Row row2;
+        final Row row3;
+        
+        Table(Row row1, Row row2, Row row3) {
+            this.row1 = row1;
+            this.row2 = row2;
+            this.row3 = row3;
+        }
+        
+        static Function<Record, Table> creator(TableRef ref) {
+            return record ->
+                new Table(Row.creator(ref.row1).apply(record),
+                          Row.creator(ref.row2).apply(record),
+                          Row.creator(ref.row3).apply(record)
+                );
+        }
+        
+        private static class Row {
+            final String name;
+            final long balance1;
+            final long balance2;
+            final long balance3;
+            
+            Row(String name, long balance1, long balance2, long balance3) {
+                this.name = name;
+                this.balance1 = balance1;
+                this.balance2 = balance2;
+                this.balance3 = balance3;
+            }
+            
+            static Function<Record, Table.Row> creator(TableRef.RowRef ref) {
+                return record ->
+                    new Table.Row(record.get(ref.name),
+                                  record.get(ref.balance1),
+                                  record.get(ref.balance2),
+                                  record.get(ref.balance3)
+                    );
+            }
+        }
+    }
+    
+    private static void row(TableRef.RowRef row,
+                            String name,
+                            AggregateAPI.Route<Long> route) {
+        route.parent().postField(row.name, o -> name);
+        route.aggField(row.balance1, Collectors.summingLong(i -> i));
+        route.aggField(row.balance2, Collectors.summingLong(i -> i));
+        route.parent().postField(row.balance3, o -> o.get(row.balance2) - o.get(row.balance1));
+    }
+    
+    private static void totalRow(TableRef.RowRef row,
+                                 String name,
+                                 AggregateAPI.Route<Long> route,
+                                 ToLongBiFunction<Record, Function<TableRef.RowRef, Field<Long>>> mapper) {
+        row(row, name, route);
+        route.parent().postField(row.balance1, o -> mapper.applyAsLong(o, r -> r.balance1));
+        route.parent().postField(row.balance2, o -> mapper.applyAsLong(o, r -> r.balance2));
+    }
+    
+    @Test
+    void testAdvancedAggregate() {
+        // This transformation conceptually goes through 3 phases:
+        //
+        // -- input table of integers --
+        // [A]
+        // [0]
+        // [1]
+        // [2]
+        // [3]
+        // ...
+        // [999]
+        //
+        // -- intermediate wide table --
+        // [row1.name, row1.balance1, row1.balance2, row1.balance3, row2.name, row2.balance1, ...]
+        // [foo, 234, 234, 643, bar, 839, 583, ...]
+        //
+        // -- output table --
+        // [name, balance1, balance2, balance3]
+        // [foo, 234, 234, 643]
+        // [bar, 839, 583, 234]
+        // [baz, 2342, 234, 12]
+        
+        TableRef.RowRef row = new TableRef.RowRef("row");
+        TableRef table = new TableRef("table");
+    
+        RecordSet data = RecordStream.aux(IntStream.range(0, 1000)).boxed()
+            .mapToRecord(into -> into.field(A_INT, i -> i))
+            .aggregate(aggregate -> aggregate
+                .<Long>route(
+                    (record, sink) -> {
+                        long a = record.get(A_INT);
+                        if (a % 2 == 0) {
+                            sink.accept(table.row1.balance1, a);
+                            sink.accept(table.row1.balance2, a+1);
+                        } else {
+                            sink.accept(table.row2.balance1, a);
+                            sink.accept(table.row2.balance2, a+1);
+                        }
+                    },
+                    route -> {
+                        row(table.row1, "first", route);
+                        row(table.row2, "second", route);
+                        totalRow(table.row3, "third", route, (o, col) ->
+                              o.get(col.apply(table.row2))
+                            - o.get(col.apply(table.row1))
+                        );
+                    }
+                )
+            ) // Now a single flattened record
+            .map(Table.creator(table)) // Now a custom representation
+            .flatMap(tab -> Stream.of(tab.row1, tab.row2, tab.row3))
+            .mapToRecord(into -> into
+                .field(row.name, o -> o.name)
+                .field(row.balance1, o -> o.balance1)
+                .field(row.balance2, o -> o.balance2)
+                .field(row.balance3, o -> o.balance3)
+            ) // Now a record-per-row
+            .toRecordSet();
+        
+        RecordSet expected = unsafeRecordSet(new Object[][]{
+            { row.name, row.balance1, row.balance2, row.balance3 },
+            {  "first", 249500L, 250000L,  500L },
+            { "second", 250000L, 250500L,  500L },
+            {  "third",    500L,    500L,    0L },
         });
         assertEquals(expected, data);
     }

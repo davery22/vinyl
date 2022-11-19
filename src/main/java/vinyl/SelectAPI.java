@@ -827,11 +827,6 @@ public class SelectAPI {
         }
     }
     
-    private static String badWindowMessage(Field<?> field, int emitted, int records) {
-        return String.format("Analytic function for field [%s] must emit exactly one value, or one value per record; " +
-                                 "emitted %d values for %d records", field, emitted, records);
-    }
-    
     private static class WindowSink<T> implements Consumer<T> {
         final Field<?> field;
         final int index;
@@ -849,7 +844,7 @@ public class SelectAPI {
             try {
                 records.get(i++).out[index] = it;
             } catch (IndexOutOfBoundsException e) {
-                throw new IllegalStateException(badWindowMessage(field, i-1, records.size()));
+                throw new IllegalStateException(badWindowMessage());
             }
         }
         
@@ -858,8 +853,13 @@ public class SelectAPI {
                 Object first = records.get(0).out[index];
                 records.forEach(record -> record.out[index] = first);
             } else if (i != records.size()) {
-                throw new IllegalStateException(badWindowMessage(field, i, records.size()));
+                throw new IllegalStateException(badWindowMessage());
             }
+        }
+    
+        private String badWindowMessage() {
+            return String.format("Analytic function for field [%s] must emit exactly one value, or one value per record; " +
+                                     "emitted %d values for %d records", field, i, records.size());
         }
     }
 }

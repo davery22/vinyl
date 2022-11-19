@@ -41,16 +41,15 @@ class Utils {
     /**
      * Natural order, nulls first/lowest.
      */
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    static Comparator<Object> DEFAULT_COMPARATOR = (a, b) -> {
+    static Comparator<Object> DEFAULT_COMPARATOR = cast((Comparator<Comparable<Object>>) (a, b) -> {
         if (a == b)
             return 0;
         if (a == null)
             return -1;
         if (b == null)
             return 1;
-        return ((Comparable) a).compareTo(b);
-    };
+        return a.compareTo(b);
+    });
     
     static Field<?> tempField() {
         return new Field<>("<anonymous>");

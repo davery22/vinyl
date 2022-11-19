@@ -108,5 +108,13 @@
  * sub-configurator of {@code select}, and the {@code fields} configurator is a sub-configurator of {@code window}.
  * Together these configurators define four fields on the resultant record-stream: {@code points},
  * {@code averagePoints}, {@code discreteMedian}, {@code continuousMedian}.
+ *
+ * <h2><a id="Discrepancies">Notable Discrepancies</a></h2>
+ *
+ * <p>Vinyl does not support <a href="https://en.wikipedia.org/wiki/Three-valued_logic">three-valued logic</a>. The
+ * value {@code null} is just {@code null}; there is generally no special handling. However, internal comparators (as
+ * used by {@link vinyl.RecordStream#sorted()} and certain {@link vinyl.JoinAPI.On} operators) are adapted to treat
+ * {@code null} as a first/lowest value. Additionally, {@link vinyl.Record#isNil()} is provided to identify when an
+ * outer {@code join()} operation introduces a record of all {@code null} values.
  */
 package vinyl;

@@ -374,8 +374,8 @@ public class RecordStream implements Stream<Record> {
     
     /**
      * Returns a stream consisting of the records of this stream, sorted according to the natural order (with nulls
-     * first/lowest) of each header field, in turn. If any header fields are not {@code Comparable}, a
-     * {@code java.lang.ClassCastException} may be thrown when the terminal operation is executed.
+     * first/lowest) of each header field's value type, in turn. If any header field's value type is not
+     * {@code Comparable}, a {@code java.lang.ClassCastException} may be thrown when the terminal operation is executed.
      *
      * <p>For ordered streams, the sort is stable. For unordered streams, no stability guarantees are made.
      *

@@ -46,13 +46,13 @@
  *         .toRecordSet();
  * }</pre>
  *
- * <p>Here we first define a few fields to use in subsequent relational operations, giving types for those fields. Then we
- * take a stream of {@code users}, transform it to a stream of records, and perform a grouped aggregation yielding a new
- * stream of records, which we finally collect into a {@code RecordSet}.
+ * <p>Here we first define a few fields to use in subsequent relational operations, giving types for those fields. Then
+ * we take a stream of {@code users}, transform it to a stream of records, and perform a grouped aggregation yielding a
+ * new stream of records, which we finally collect into a {@code RecordSet}.
  *
  * <h2><a id="Records">Records, Headers, and Fields</a></h2>
  *
- * <p>{@code Record} is an essential abstraction in Vinyl. A record is a shallowly-immutable carrier for a fixed set of
+ * <p>{@code Record} is a central abstraction in Vinyl. A record is a shallowly-immutable carrier for a fixed set of
  * values, not unlike a {@code java.lang.Record} in Java 16+. However, Vinyl Records are not open to extension, and do
  * not declare any fields on the class. Instead, records are internally instantiated with a {@code Header} and a set of
  * values. The header defines what "fields" the record contains, and the values correspond to those fields. This allows
@@ -84,9 +84,9 @@
  *
  * <h2><a id="Configurators">Configurators</a></h2>
  *
- * <p>Relational operations on a record-stream expose "configurators", which configure how the operation is executed. For
- * example, configurators are used to define the output fields of a {@code select()} operation, the join condition of a
- * {@code join()} operation, and the grouping keys of an {@code aggregate()} operation. Configurators may expose
+ * <p>Relational operations on a record-stream expose "configurators", which configure how the operation is executed.
+ * For example, configurators are used to define the output fields of a {@code select()} operation, the join condition
+ * of a {@code join()} operation, and the grouping keys of an {@code aggregate()} operation. Configurators may expose
  * sub-configurators for handling isolated specifics of the overall operation. To demonstrate:
  *
  * <pre>{@code

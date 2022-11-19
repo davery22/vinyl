@@ -255,11 +255,11 @@ public class Record {
             Redirect redirect = (Redirect) value;
             Function<? super Record, ?> mapper = redirect.mapper;
             if (mapper == null)
-                throw new CycleException(header.fields[index]);
+                throw new FieldCycleException(header.fields[index]);
             redirect.mapper = null;
             try {
                 value = mapper.apply(this);
-            } catch (CycleException e) {
+            } catch (FieldCycleException e) {
                 throw e.prepend(header.fields[index]);
             }
             return values[index] = value;
@@ -293,17 +293,17 @@ public class Record {
             throw findFirstCycle();
         }
         
-        private CycleException findFirstCycle() {
+        private FieldCycleException findFirstCycle() {
             for (int i = 0; i < values.length; i++) {
                 if (values[i] instanceof Redirect && ((Redirect) values[i]).mapper == null)
-                    return new CycleException(header.fields[i]);
+                    return new FieldCycleException(header.fields[i]);
             }
             throw new AssertionError(); // unreachable
         }
     }
     
     /**
-     * Used by RecursiveRecord to capture unevaluated values.
+     * Used by RecursiveRecord to capture unevaluated post fields.
      */
     static class Redirect {
         Function<? super Record, ?> mapper;
@@ -313,22 +313,25 @@ public class Record {
         }
     }
     
-    static class CycleException extends IllegalStateException {
+    /**
+     * Used by RecursiveRecord to capture cyclic reference errors.
+     */
+    static class FieldCycleException extends IllegalStateException {
         private final LinkedList<Field<?>> knownNodes;
         
-        CycleException(Field<?> head) {
+        FieldCycleException(Field<?> head) {
             this.knownNodes = new LinkedList<>();
             prepend(head);
         }
         
-        CycleException prepend(Field<?> head) {
+        FieldCycleException prepend(Field<?> head) {
             this.knownNodes.addFirst(head);
             return this;
         }
     
         @Override
         public String getMessage() {
-            boolean foundCycle = false;
+            boolean foundStartOfCycle = false;
             Field<?> lastField = knownNodes.getLast();
             StringBuilder sb = new StringBuilder("Known fields in cycle: ");
             String delimiter = "";
@@ -336,13 +339,13 @@ public class Record {
                 Field<?> field = iter.next();
                 sb.append(delimiter);
                 if (field == lastField && iter.hasNext()) {
-                    foundCycle = true;
+                    foundStartOfCycle = true;
                     sb.append('(');
                 }
                 sb.append(field);
                 delimiter = " -> ";
             }
-            if (foundCycle)
+            if (foundStartOfCycle)
                 sb.append(')');
             return sb.toString();
         }

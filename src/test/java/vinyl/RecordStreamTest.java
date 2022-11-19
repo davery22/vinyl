@@ -1326,7 +1326,7 @@ public class RecordStreamTest {
         assertEquals(expected, data);
     }
     
-    // Constructors are not strictly necessary, but are used to disambiguate field names.
+    // Constructors are not strictly necessary, but are useful for disambiguating field names.
     private static class TableRef {
         final RowRef row1;
         final RowRef row2;

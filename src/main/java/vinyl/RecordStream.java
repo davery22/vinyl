@@ -155,6 +155,9 @@ public class RecordStream implements Stream<Record> {
      * <p>This is a stateless intermediate operation, by default. If {@link SelectAPI.Window windows} are configured,
      * this becomes a stateful intermediate operation.
      *
+     * <p>If {@link SelectAPI.Window windows} are configured, subsequent changes to the sequential/parallel execution
+     * mode of the returned stream will <em>not</em> propagate to the input stream.
+     *
      * @param config a consumer that configures the output fields
      * @return a stream that maps each record in this stream to a new record
      */
@@ -168,6 +171,9 @@ public class RecordStream implements Stream<Record> {
      * the given configurator consumer. The returned stream will have a new header, shared by the new records.
      *
      * <p>This is a stateful intermediate operation.
+     *
+     * <p>Subsequent changes to the sequential/parallel execution mode of the returned stream will <em>not</em>
+     * propagate to the input stream.
      *
      * @param config a consumer that configures the aggregate operation
      * @return a stream that aggregates the records in this stream
@@ -187,7 +193,11 @@ public class RecordStream implements Stream<Record> {
      * is emitted downstream.
      *
      * <p>This is a stateless intermediate operation on the left stream, and a stateful intermediate operation on the
-     * right stream. Upon {@code close()}, the returned stream closes both input streams.
+     * right stream.
+     *
+     * <p>Subsequent changes to the sequential/parallel execution mode of the returned stream will propagate to the left
+     * stream, but not the right stream. When the returned stream is closed, the close handlers for both input streams
+     * are invoked.
      *
      * @param right the right-side stream
      * @param onConfig a function that configures the join condition
@@ -212,7 +222,11 @@ public class RecordStream implements Stream<Record> {
      * downstream. If a right-side record does not match any left-side records, nothing is emitted downstream.
      *
      * <p>This is a stateless intermediate operation on the left stream, and a stateful intermediate operation on the
-     * right stream. Upon {@code close()}, the returned stream closes both input streams.
+     * right stream.
+     *
+     * <p>Subsequent changes to the sequential/parallel execution mode of the returned stream will propagate to the left
+     * stream, but not the right stream. When the returned stream is closed, the close handlers for both input streams
+     * are invoked.
      *
      * @param right the right-side stream
      * @param onConfig a function that configures the join condition
@@ -238,7 +252,11 @@ public class RecordStream implements Stream<Record> {
      * downstream.
      *
      * <p>This is a stateless intermediate operation on the left stream, and a stateful intermediate operation on the
-     * right stream. Upon {@code close()}, the returned stream closes both input streams.
+     * right stream.
+     *
+     * <p>Subsequent changes to the sequential/parallel execution mode of the returned stream will <em>not</em>
+     * propagate to the input streams. When the returned stream is closed, the close handlers for both input streams
+     * are invoked.
      *
      * @param right the right-side stream
      * @param onConfig a function that configures the join condition
@@ -263,7 +281,11 @@ public class RecordStream implements Stream<Record> {
      * created as configured and emitted downstream.
      *
      * <p>This is a stateless intermediate operation on the left stream, and a stateful intermediate operation on the
-     * right stream. Upon {@code close()}, the returned stream closes both input streams.
+     * right stream.
+     *
+     * <p>Subsequent changes to the sequential/parallel execution mode of the returned stream will <em>not</em>
+     * propagate to the input streams. When the returned stream is closed, the close handlers for both input streams
+     * are invoked.
      *
      * @param right the right-side stream
      * @param onConfig a function that configures the join condition
@@ -351,8 +373,8 @@ public class RecordStream implements Stream<Record> {
     };
     
     /**
-     * Returns a stream consisting of the records of this stream, sorted according to the natural order of each header
-     * field in turn (nulls first/lowest). If any header fields are not {@code Comparable}, a
+     * Returns a stream consisting of the records of this stream, sorted according to the natural order (with nulls
+     * first/lowest) of each header field, in turn. If any header fields are not {@code Comparable}, a
      * {@code java.lang.ClassCastException} may be thrown when the terminal operation is executed.
      *
      * <p>For ordered streams, the sort is stable. For unordered streams, no stability guarantees are made.

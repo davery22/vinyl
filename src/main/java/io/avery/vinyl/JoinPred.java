@@ -22,9 +22,9 @@
  * SOFTWARE.
  */
 
-package vinyl;
+package io.avery.vinyl;
 
-import vinyl.Record.FlaggedRecord;
+import io.avery.vinyl.Record.FlaggedRecord;
 
 import java.util.*;
 import java.util.function.*;

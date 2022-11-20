@@ -22,12 +22,7 @@
  * SOFTWARE.
  */
 
-package vinyl;
-
-import vinyl.Record.FlaggedRecord;
-import vinyl.Record.NilRecord;
-import vinyl.Record.RecursiveRecord;
-import vinyl.Record.Redirect;
+package io.avery.vinyl;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -111,8 +106,8 @@ public class JoinAPI {
                 mapper.accept(lt, rt, arr);
             return new Record(nextHeader, arr);
         };
-        Record leftNilRecord = new NilRecord(left.header, new Object[left.header.fields.length]);
-        Record rightNilRecord = new NilRecord(right.header, new Object[right.header.fields.length]);
+        Record leftNilRecord = new Record.NilRecord(left.header, new Object[left.header.fields.length]);
+        Record rightNilRecord = new Record.NilRecord(right.header, new Object[right.header.fields.length]);
         
         // Step 2: Set up the join operation.
         
@@ -171,9 +166,9 @@ public class JoinAPI {
     
         if (!finalPostMappers.isEmpty())
             nextStream = nextStream.peek(out -> {
-                Record.RecursiveRecord record = new RecursiveRecord(nextHeader, out.values);
+                Record.RecursiveRecord record = new Record.RecursiveRecord(nextHeader, out.values);
                 for (Select.PostMapper mapper : finalPostMappers)
-                    out.values[mapper.index] = new Redirect(mapper.mapper);
+                    out.values[mapper.index] = new Record.Redirect(mapper.mapper);
                 for (Select.PostMapper mapper : finalPostMappers)
                     record.eval(mapper.index);
                 record.isDone = true; // Ensure proper behavior for fields that may have captured the record itself
@@ -248,7 +243,7 @@ public class JoinAPI {
         
         @Override
         public void search(Record left, Consumer<Record> sink) {
-            Consumer<FlaggedRecord> wrapperSink = right -> {
+            Consumer<Record.FlaggedRecord> wrapperSink = right -> {
                 right.isMatched = true;
                 sink.accept(combiner.apply(left, right.record));
             };
@@ -279,9 +274,9 @@ public class JoinAPI {
     
         @Override
         public void search(Record left, Consumer<Record> sink) {
-            class Sink implements Consumer<FlaggedRecord> {
+            class Sink implements Consumer<Record.FlaggedRecord> {
                 boolean noneMatch = true;
-                public void accept(FlaggedRecord right) {
+                public void accept(Record.FlaggedRecord right) {
                     noneMatch = false;
                     right.isMatched = true;
                     sink.accept(combiner.apply(left, right.record));

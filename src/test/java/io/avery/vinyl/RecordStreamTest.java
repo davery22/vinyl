@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package vinyl;
+package io.avery.vinyl;
 
 import org.junit.jupiter.api.Test;
 

@@ -113,8 +113,8 @@
  *
  * <p>Vinyl does not support <a href="https://en.wikipedia.org/wiki/Three-valued_logic">three-valued logic</a>. The
  * value {@code null} is just {@code null}; there is generally no special handling. However, internal comparators (as
- * used by {@link vinyl.RecordStream#sorted()} and certain {@link vinyl.JoinAPI.On} operators) are adapted to treat
- * {@code null} as a first/lowest value. Additionally, {@link vinyl.Record#isNil()} is provided to identify when an
- * outer {@code join()} operation introduces a record of all {@code null} values.
+ * used by {@link io.avery.vinyl.RecordStream#sorted()} and certain {@link io.avery.vinyl.JoinAPI.On} operators) are
+ * adapted to treat {@code null} as a first/lowest value. Additionally, {@link io.avery.vinyl.Record#isNil()} is
+ * provided to identify when an outer {@code join()} operation introduces a record of all {@code null} values.
  */
-package vinyl;
+package io.avery.vinyl;

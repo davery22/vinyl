@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package vinyl;
+package io.avery.vinyl;
 
 import java.util.NoSuchElementException;
 import java.util.Objects;

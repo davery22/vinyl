@@ -22,10 +22,7 @@
  * SOFTWARE.
  */
 
-package vinyl;
-
-import vinyl.Record.RecursiveRecord;
-import vinyl.Record.Redirect;
+package io.avery.vinyl;
 
 import java.util.*;
 import java.util.function.*;
@@ -33,9 +30,6 @@ import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
-
-import static vinyl.Utils.cast;
-import static vinyl.Utils.tempField;
 
 /**
  * A configurator used to define an aggregate operation on a {@link RecordStream record-stream}.
@@ -74,7 +68,7 @@ public class AggregateAPI {
     @SuppressWarnings({"unchecked", "rawtypes"})
     public AggregateAPI key(Field<?> field) {
         FieldPin pin = stream.header.pin(field);
-        return keyHelper(true, tempField(), record -> record.get(pin));
+        return keyHelper(true, Utils.tempField(), record -> record.get(pin));
     }
     
     /**
@@ -85,7 +79,7 @@ public class AggregateAPI {
      */
     public AggregateAPI key(Function<? super Record, ?> mapper) {
         Objects.requireNonNull(mapper);
-        return keyHelper(true, tempField(), mapper);
+        return keyHelper(true, Utils.tempField(), mapper);
     }
     
     /**
@@ -440,9 +434,9 @@ public class AggregateAPI {
     
         if (!finalPostMappers.isEmpty())
             nextStream = nextStream.peek(out -> {
-                RecursiveRecord record = new RecursiveRecord(nextHeader, out.values);
+                Record.RecursiveRecord record = new Record.RecursiveRecord(nextHeader, out.values);
                 for (PostMapper mapper : finalPostMappers)
-                    out.values[mapper.index] = new Redirect(mapper.mapper);
+                    out.values[mapper.index] = new Record.Redirect(mapper.mapper);
                 for (PostMapper mapper : finalPostMappers)
                     record.eval(mapper.index);
                 record.isDone = true; // Ensure proper behavior for fields that may have captured the record itself
@@ -494,17 +488,17 @@ public class AggregateAPI {
             },
             (a, t) -> {
                 for (int i = 0; i < size; i++)
-                    accumulators[i].accept(cast(a[i]), cast(t));
+                    accumulators[i].accept(Utils.cast(a[i]), Utils.cast(t));
             },
             (a, b) -> {
                 for (int i = 0; i < size; i++)
-                    a[i] = combiners[i].apply(cast(a[i]), cast(b[i]));
+                    a[i] = combiners[i].apply(Utils.cast(a[i]), Utils.cast(b[i]));
                 return a;
             },
             a -> {
                 Object[] arr = new Object[aggsSize];
                 for (int i = 0; i < size; i++) {
-                    Object it = finishers[i].apply(cast(a[i]));
+                    Object it = finishers[i].apply(Utils.cast(a[i]));
                     collectorBoxes.get(i).accept(it, arr);
                 }
                 return Arrays.asList(arr);
@@ -602,7 +596,7 @@ public class AggregateAPI {
          */
         public Keys<T> key(Function<? super T, ?> mapper) {
             Objects.requireNonNull(mapper);
-            return keyHelper(true, tempField(), mapper);
+            return keyHelper(true, Utils.tempField(), mapper);
         }
     
         /**
@@ -814,22 +808,22 @@ public class AggregateAPI {
                     BiConsumer<Field<?>, T> sink = (key, value) -> {
                         Integer i = indexByField.get(key);
                         if (i != null)
-                            accumulators[i].accept(cast(arr[i]), cast(value));
+                            accumulators[i].accept(Utils.cast(arr[i]), Utils.cast(value));
                     };
                     arr[size] = sink;
                     return arr;
                 },
-                (a, t) -> router.accept(t, cast(a[size])),
+                (a, t) -> router.accept(t, Utils.cast(a[size])),
                 (a, b) -> {
                     for (int i = 0; i < size; i++)
-                        a[i] = combiners[i].apply(cast(a[i]), cast(b[i]));
+                        a[i] = combiners[i].apply(Utils.cast(a[i]), Utils.cast(b[i]));
                     return a;
                 },
                 a -> {
                     // Result includes the sink in the last position, but we just ignore it when populating end-array
                     // values in the accept() override.
                     for (int i = 0; i < size; i++)
-                        a[i] = finishers[i].apply(cast(a[i]));
+                        a[i] = finishers[i].apply(Utils.cast(a[i]));
                     return a;
                 }
             );

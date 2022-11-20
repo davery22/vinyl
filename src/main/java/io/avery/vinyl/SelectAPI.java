@@ -22,11 +22,7 @@
  * SOFTWARE.
  */
 
-package vinyl;
-
-import vinyl.Record.LinkedRecord;
-import vinyl.Record.RecursiveRecord;
-import vinyl.Record.Redirect;
+package io.avery.vinyl;
 
 import java.util.*;
 import java.util.function.BiConsumer;
@@ -237,7 +233,7 @@ public class SelectAPI {
                 return new Record(nextHeader, arr);
             });
         else
-            nextStream = streamWindows(stream.stream.map(record -> new LinkedRecord(record, new Object[size])),
+            nextStream = streamWindows(stream.stream.map(record -> new Record.LinkedRecord(record, new Object[size])),
                                        finalWindows)
                 .map(record -> {
                     Object[] arr = record.out;
@@ -248,9 +244,9 @@ public class SelectAPI {
         
         if (!finalPostMappers.isEmpty())
             nextStream = nextStream.peek(out -> {
-                RecursiveRecord record = new RecursiveRecord(nextHeader, out.values);
+                Record.RecursiveRecord record = new Record.RecursiveRecord(nextHeader, out.values);
                 for (PostMapper mapper : finalPostMappers)
-                    out.values[mapper.index] = new Redirect(mapper.mapper);
+                    out.values[mapper.index] = new Record.Redirect(mapper.mapper);
                 for (PostMapper mapper : finalPostMappers)
                     record.eval(mapper.index);
                 record.isDone = true; // Ensure proper behavior for fields that may have captured the record itself
@@ -259,8 +255,8 @@ public class SelectAPI {
         return new RecordStream(nextHeader, nextStream);
     }
     
-    private Stream<LinkedRecord> streamWindows(Stream<LinkedRecord> stream, List<Window> windows) {
-        List<Collector<LinkedRecord, ?, Map<List<?>, List<LinkedRecord>>>> collectors = new ArrayList<>(windows.size());
+    private Stream<Record.LinkedRecord> streamWindows(Stream<Record.LinkedRecord> stream, List<Window> windows) {
+        List<Collector<Record.LinkedRecord, ?, Map<List<?>, List<Record.LinkedRecord>>>> collectors = new ArrayList<>(windows.size());
         for (Window window : windows)
             // Optimization: skip grouping step for keyless (non-partitioned) windows.
             if (window.keyCount == 0)
@@ -279,10 +275,10 @@ public class SelectAPI {
         return StreamSupport.stream(
             () -> {
                 // Process windows sequentially to minimize memory usage.
-                Stream<LinkedRecord> curr = stream;
+                Stream<Record.LinkedRecord> curr = stream;
                 for (int i = 0; ; i++) {
-                    Collection<List<LinkedRecord>> partitions = curr.collect(collectors.get(i)).values();
-                    Stream<List<LinkedRecord>> next = (isParallel ? partitions.parallelStream() : partitions.stream()).peek(windows.get(i)::accept);
+                    Collection<List<Record.LinkedRecord>> partitions = curr.collect(collectors.get(i)).values();
+                    Stream<List<Record.LinkedRecord>> next = (isParallel ? partitions.parallelStream() : partitions.stream()).peek(windows.get(i)::accept);
                     if (i == windows.size()-1) // Optimization: Return the values stream spliterator, so that we can report Spliterator.SIZED
                         return next.spliterator();
                     curr = next.flatMap(Collection::stream);
@@ -308,7 +304,7 @@ public class SelectAPI {
     }
     
     private abstract static class WindowFunction {
-        abstract void accept(List<LinkedRecord> records);
+        abstract void accept(List<Record.LinkedRecord> records);
     }
     
     private static class PostMapper {
@@ -600,7 +596,7 @@ public class SelectAPI {
             return this;
         }
         
-        void accept(List<LinkedRecord> records) {
+        void accept(List<Record.LinkedRecord> records) {
             // It would be nice if we preserved encounter order for unordered window functions,
             // but that would require processing all windows in the same pass instead of feeding them into each other,
             // and that would be much more memory intensive.
@@ -643,7 +639,7 @@ public class SelectAPI {
             }
     
             @Override
-            void accept(List<LinkedRecord> records) {
+            void accept(List<Record.LinkedRecord> records) {
                 if (comparator != null)
                     records.sort(comparator);
                 WindowSink<T> sink = new WindowSink<>(field, index, records);
@@ -786,7 +782,7 @@ public class SelectAPI {
             }
     
             @Override
-            void accept(List<LinkedRecord> records) {
+            void accept(List<Record.LinkedRecord> records) {
                 if (comparator != null)
                     records.sort(comparator);
                 T obj = mapper.apply(Collections.unmodifiableList(records));
@@ -812,7 +808,7 @@ public class SelectAPI {
                     this.mapper = mapper;
                 }
                 
-                void accept(List<LinkedRecord> records, T obj) {
+                void accept(List<Record.LinkedRecord> records, T obj) {
                     WindowSink<U> sink = new WindowSink<>(field, index, records);
                     mapper.accept(obj, sink);
                     sink.finish();
@@ -830,10 +826,10 @@ public class SelectAPI {
     private static class WindowSink<T> implements Consumer<T> {
         final Field<?> field;
         final int index;
-        final List<LinkedRecord> records;
+        final List<Record.LinkedRecord> records;
         int i = 0;
         
-        WindowSink(Field<?> field, int index, List<LinkedRecord> records) {
+        WindowSink(Field<?> field, int index, List<Record.LinkedRecord> records) {
             this.field = field;
             this.index = index;
             this.records = records;

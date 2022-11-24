@@ -206,7 +206,7 @@ public class Analytics {
     
     /**
      * Returns an analytic function that emits the cumulative distribution value of each record in the partition. This
-     * value is defined as the number of records preceding a record, plus consecutively succeeding tied records, all
+     * value is defined as the number of records preceding a record, plus consecutively proceeding tied records, all
      * divided by the total number of records. Consecutive records are considered tied if they compare equal using the
      * given comparator. The cumulative distribution value is always greater than {@code 0} and less than or equal to
      * {@code 1}.
@@ -317,10 +317,9 @@ public class Analytics {
      * Returns an analytic function that emits one value for the partition, derived by interpolation from the values of
      * the records that are positioned closest on either side of the given percentile's index. More specifically, the
      * percentile is multiplied by the last index in the partition, yielding an exact percentile index. Then a value is
-     * emitted by applying the given function to the two records on either side of the percentile index, and
-     * interpolating a value between them based on the relative distance from the percentile index to each record index.
-     * If the percentile index is a mathematical integer, then interpolation can be skipped, as the percentile index
-     * will exactly match a single record index.
+     * emitted by applying the given function to the two records on either side of the percentile index, and linearly
+     * interpolating a value between the records' values. If the percentile index is a mathematical integer, then
+     * interpolation can be skipped, as the percentile index will exactly match a single record index.
      *
      * <p>The given percentile must be greater than or equal to {@code 0} and less than or equal to {@code 1}, otherwise
      * an {@link IllegalArgumentException} is thrown.

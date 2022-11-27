@@ -56,7 +56,16 @@ public class JoinAPI {
     private final RecordStream left;
     private final RecordStream right;
     
-    enum JoinType { INNER, LEFT, RIGHT, FULL }
+    enum JoinType {
+        INNER,
+        LEFT,
+        RIGHT,
+        FULL,
+        LEFT_ANY_MATCH,
+        LEFT_NONE_MATCH,
+        LEFT_ALL_MATCH,
+        LEFT_NOT_ALL_MATCH
+    }
     
     // 'Side' values, used by JoinExpr and JoinPred.
     static int NONE = 0;
@@ -68,6 +77,31 @@ public class JoinAPI {
         this.type = type;
         this.left = left;
         this.right = right;
+    }
+    
+    RecordStream semiAccept(Function<JoinAPI.On, JoinPred> onConfig) {
+        JoinPred pred = onConfig.apply(new On());
+    
+        // Chain a no-op, so that the stream will throw if re-used after this call.
+        RecordStream rStream = right.peek(it -> {});
+        Lazy<Index> lazyIndex = new Lazy<>(() -> {
+            JoinPred.Simplifier simplifier = new JoinPred.Simplifier();
+            JoinPred.IndexCreator indexCreator = new JoinPred.IndexCreator(rStream, type);
+            pred.accept(simplifier);
+            simplifier.output.accept(indexCreator);
+            return indexCreator.output;
+        });
+    
+        Stream<Record> nextStream;
+        switch (type) {
+            case LEFT_ANY_MATCH:     nextStream = left.stream.filter(record ->  lazyIndex.get().anyMatch(record)); break;
+            case LEFT_NONE_MATCH:    nextStream = left.stream.filter(record -> !lazyIndex.get().anyMatch(record)); break;
+            case LEFT_ALL_MATCH:     nextStream = left.stream.filter(record ->  lazyIndex.get().allMatch(record)); break;
+            case LEFT_NOT_ALL_MATCH: nextStream = left.stream.filter(record -> !lazyIndex.get().allMatch(record)); break;
+            default: throw new AssertionError();
+        }
+        
+        return new RecordStream(left.header, nextStream.onClose(rStream::close));
     }
     
     RecordStream accept(Function<JoinAPI.On, JoinPred> onConfig,
@@ -120,14 +154,11 @@ public class JoinAPI {
     
         // Chain a no-op, so that the stream will throw if re-used after this call.
         RecordStream rStream = right.peek(it -> {});
-        boolean retainUnmatchedRight = type == JoinType.RIGHT || type == JoinType.FULL;
-        Lazy<Index> lazyJoiner = new Lazy<>(() -> {
+        Lazy<Joiner> lazyJoiner = new Lazy<>(() -> {
             JoinPred.Simplifier simplifier = new JoinPred.Simplifier();
+            JoinPred.IndexCreator indexCreator = new JoinPred.IndexCreator(rStream, type);
             pred.accept(simplifier);
-            JoinPred simplifiedPred = simplifier.output;
-            
-            JoinPred.IndexCreator indexCreator = new JoinPred.IndexCreator(rStream, retainUnmatchedRight);
-            simplifiedPred.accept(indexCreator);
+            simplifier.output.accept(indexCreator);
             Index index = indexCreator.output;
             
             switch (type) {
@@ -144,12 +175,12 @@ public class JoinAPI {
                 // For now, Stream.Builder uses SpinedBuffer internally, so eliminates copying if capacity needs
                 // increased. And even the SpinedBuffer is avoided if only one element is added.
                 Stream.Builder<Record> buffer = Stream.builder();
-                lazyJoiner.get().search(record, buffer);
+                lazyJoiner.get().emitMatches(record, buffer);
                 return buffer.build();
             })
             .onClose(rStream::close);
         
-        if (retainUnmatchedRight) {
+        if (type == JoinType.RIGHT || type == JoinType.FULL) {
             Stream<Record> s = nextStream;
             nextStream = StreamSupport.stream(
                 () -> new SwitchingSpliterator<>(new AtomicInteger(0),
@@ -178,11 +209,18 @@ public class JoinAPI {
     }
     
     interface Index {
-        void search(Record left, Consumer<Record> sink);
+        void emitMatches(Record left, Consumer<Record> sink);
+        boolean anyMatch(Record left);
+        boolean allMatch(Record left);
+        Stream<Record> unmatchedRight();
+    }
+    
+    interface Joiner {
+        void emitMatches(Record left, Consumer<Record> sink);
         default Stream<Record> unmatchedRight() { throw new UnsupportedOperationException(); }
     }
     
-    private static class InnerJoiner implements Index {
+    private static class InnerJoiner implements Joiner {
         final Index index;
         final BinaryOperator<Record> combiner;
         
@@ -192,13 +230,13 @@ public class JoinAPI {
         }
         
         @Override
-        public void search(Record left, Consumer<Record> sink) {
+        public void emitMatches(Record left, Consumer<Record> sink) {
             Consumer<Record> wrapperSink = right -> sink.accept(combiner.apply(left, right));
-            index.search(left, wrapperSink);
+            index.emitMatches(left, wrapperSink);
         }
     }
     
-    private static class LeftJoiner implements Index {
+    private static class LeftJoiner implements Joiner {
         final Index index;
         final BinaryOperator<Record> combiner;
         final Record rightNilRecord;
@@ -210,7 +248,7 @@ public class JoinAPI {
         }
     
         @Override
-        public void search(Record left, Consumer<Record> sink) {
+        public void emitMatches(Record left, Consumer<Record> sink) {
             class Sink implements Consumer<Record> {
                 boolean noneMatch = true;
                 public void accept(Record right) {
@@ -223,12 +261,12 @@ public class JoinAPI {
                 }
             }
             Sink wrapperSink = new Sink();
-            index.search(left, wrapperSink);
+            index.emitMatches(left, wrapperSink);
             wrapperSink.finish();
         }
     }
     
-    private static class RightJoiner implements Index {
+    private static class RightJoiner implements Joiner {
         final Index index;
         final BinaryOperator<Record> combiner;
         final Record leftNilRecord;
@@ -242,12 +280,12 @@ public class JoinAPI {
         }
         
         @Override
-        public void search(Record left, Consumer<Record> sink) {
+        public void emitMatches(Record left, Consumer<Record> sink) {
             Consumer<Record.FlaggedRecord> wrapperSink = right -> {
                 right.isMatched = true;
                 sink.accept(combiner.apply(left, right.record));
             };
-            index.search(left, Utils.cast(wrapperSink));
+            index.emitMatches(left, Utils.cast(wrapperSink));
         }
         
         @Override
@@ -256,7 +294,7 @@ public class JoinAPI {
         }
     }
     
-    private static class FullJoiner implements Index {
+    private static class FullJoiner implements Joiner {
         final Index index;
         final BinaryOperator<Record> combiner;
         final Record leftNilRecord;
@@ -273,7 +311,7 @@ public class JoinAPI {
         }
     
         @Override
-        public void search(Record left, Consumer<Record> sink) {
+        public void emitMatches(Record left, Consumer<Record> sink) {
             class Sink implements Consumer<Record.FlaggedRecord> {
                 boolean noneMatch = true;
                 public void accept(Record.FlaggedRecord right) {
@@ -287,7 +325,7 @@ public class JoinAPI {
                 }
             }
             Sink wrapperSink = new Sink();
-            index.search(left, Utils.cast(wrapperSink));
+            index.emitMatches(left, Utils.cast(wrapperSink));
             wrapperSink.finish();
         }
     

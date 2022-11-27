@@ -317,12 +317,19 @@ public class JoinPred {
     
     static class IndexCreator implements Visitor {
         final RecordStream rStream;
-        final boolean retainUnmatchedRight;
+        final JoinAPI.JoinType joinType;
         JoinAPI.Index output;
         
-        IndexCreator(RecordStream rStream, boolean retainUnmatchedRight) {
+        // TODO?: We currently unnecessarily hold on to the right side even when we don't need to for any/allMatch.
+        //  TBD based on if/how we expose "advanced" join ops.
+        
+        IndexCreator(RecordStream rStream, JoinAPI.JoinType joinType) {
             this.rStream = rStream;
-            this.retainUnmatchedRight = retainUnmatchedRight;
+            this.joinType = joinType;
+        }
+        
+        boolean retainUnmatchedRight() {
+            return joinType == JoinAPI.JoinType.RIGHT || joinType == JoinAPI.JoinType.FULL;
         }
     
         @Override
@@ -341,9 +348,10 @@ public class JoinPred {
                         Record[] rightSide;
                         try (RecordStream ds = rStream) {
                             // NOTE: Only converting because JoinAPI expects FlaggedRecords during right/full joins.
-                            Stream<Record> s = retainUnmatchedRight ? ds.stream.map(FlaggedRecord::new) : ds.stream;
+                            Stream<Record> s = retainUnmatchedRight() ? ds.stream.map(FlaggedRecord::new) : ds.stream;
                             rightSide = s.toArray(Record[]::new);
                         }
+                        boolean anyMatch = rightSide.length != 0;
                         output = new JoinAPI.Index() {
                             @Override
                             public Stream<Record> unmatchedRight() {
@@ -351,7 +359,17 @@ public class JoinPred {
                             }
                             
                             @Override
-                            public void search(Record left, Consumer<Record> sink) {
+                            public boolean anyMatch(Record left) {
+                                return anyMatch;
+                            }
+    
+                            @Override
+                            public boolean allMatch(Record left) {
+                                return true;
+                            }
+    
+                            @Override
+                            public void emitMatches(Record left, Consumer<Record> sink) {
                                 for (Record right : rightSide)
                                     sink.accept(right);
                             }
@@ -359,8 +377,12 @@ public class JoinPred {
                     }
                     else {
                         // Entire right side is unmatched.
-                        if (!retainUnmatchedRight)
-                            rStream.close();
+                        boolean allMatch;
+                        if (retainUnmatchedRight())
+                            allMatch = false; // unused in this case
+                        else try (RecordStream r = rStream) {
+                            allMatch = !r.findAny().isPresent(); // is right side empty?
+                        }
                         output = new JoinAPI.Index() {
                             @Override
                             public Stream<Record> unmatchedRight() {
@@ -368,7 +390,17 @@ public class JoinPred {
                             }
                             
                             @Override
-                            public void search(Record left, Consumer<Record> sink) {
+                            public boolean anyMatch(Record left) {
+                                return false;
+                            }
+    
+                            @Override
+                            public boolean allMatch(Record left) {
+                                return allMatch;
+                            }
+    
+                            @Override
+                            public void emitMatches(Record left, Consumer<Record> sink) {
                                 // Nothing matches
                             }
                         };
@@ -408,19 +440,35 @@ public class JoinPred {
                     }
                     switch (pred.op) {
                         case EQ: case NEQ: case CEQ: case CNEQ: {
+                            Binary.Op op = pred.op;
                             Supplier<Map<Object, List<Record>>> mapFactory =
-                                pred.op == Binary.Op.CEQ || pred.op == Binary.Op.CNEQ
+                                op == Binary.Op.CEQ || op == Binary.Op.CNEQ
                                     ? () -> new TreeMap<>(Utils.DEFAULT_COMPARATOR)
                                     : HashMap::new;
                             Map<Object, List<Record>> indexedRight;
                             try (RecordStream ds = rStream) {
-                                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(FlaggedRecord::new) : ds.stream;
+                                Stream<Record> s = retainUnmatchedRight() ? ds.stream.map(FlaggedRecord::new) : ds.stream;
                                 indexedRight = s.collect(Collectors.groupingBy(rightMapper, mapFactory, Collectors.toList()));
                             }
-                            if (pred.op == Binary.Op.EQ || pred.op == Binary.Op.CEQ) {
+                            if (op == Binary.Op.EQ || op == Binary.Op.CEQ) {
                                 output = new MapIndex<>(indexedRight) {
                                     @Override
-                                    public void search(Record left, Consumer<Record> sink) {
+                                    public boolean anyMatch(Record left) {
+                                        Object leftVal = leftMapper.apply(left);
+                                        return indexedRight.get(leftVal) != null;
+                                    }
+    
+                                    @Override
+                                    public boolean allMatch(Record left) {
+                                        Object leftVal = leftMapper.apply(left);
+                                        for (Object rightVal : indexedRight.keySet())
+                                            if (!op.test(leftVal, rightVal))
+                                                return false;
+                                        return true;
+                                    }
+    
+                                    @Override
+                                    public void emitMatches(Record left, Consumer<Record> sink) {
                                         Object leftVal = leftMapper.apply(left);
                                         List<Record> records = indexedRight.get(leftVal);
                                         if (records != null)
@@ -430,10 +478,27 @@ public class JoinPred {
                                 };
                             }
                             else { // NEQ, CNEQ
-                                Binary.Op op = pred.op;
                                 output = new MapIndex<>(indexedRight) {
                                     @Override
-                                    public void search(Record left, Consumer<Record> sink) {
+                                    public boolean anyMatch(Record left) {
+                                        Object leftVal = leftMapper.apply(left);
+                                        for (Object rightVal : indexedRight.keySet())
+                                            if (op.test(leftVal, rightVal))
+                                                return true;
+                                        return false;
+                                    }
+    
+                                    @Override
+                                    public boolean allMatch(Record left) {
+                                        Object leftVal = leftMapper.apply(left);
+                                        for (Object rightVal : indexedRight.keySet())
+                                            if (!op.test(leftVal, rightVal))
+                                                return false;
+                                        return true;
+                                    }
+    
+                                    @Override
+                                    public void emitMatches(Record left, Consumer<Record> sink) {
                                         Object leftVal = leftMapper.apply(left);
                                         indexedRight.forEach((rightVal, records) -> {
                                             if (op.test(leftVal, rightVal))
@@ -452,14 +517,30 @@ public class JoinPred {
                             boolean inclusive = op == Binary.Op.GTE || op == Binary.Op.LTE;
                             TreeMap<Object, List<Record>> indexedRight;
                             try (RecordStream ds = rStream) {
-                                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(FlaggedRecord::new) : ds.stream;
+                                Stream<Record> s = retainUnmatchedRight() ? ds.stream.map(FlaggedRecord::new) : ds.stream;
                                 indexedRight = s.collect(Collectors.groupingBy(rightMapper, () -> new TreeMap<>(Utils.DEFAULT_COMPARATOR), Collectors.toList()));
                             }
                             switch (op) {
                                 case GT: case GTE: {
                                     output = new MapIndex<>(indexedRight) {
                                         @Override
-                                        public void search(Record left, Consumer<Record> sink) {
+                                        public boolean anyMatch(Record left) {
+                                            // left GT any right -> must be something LT left
+                                            // left GTE any right -> must be something LTE left
+                                            Object leftVal = leftMapper.apply(left);
+                                            return !indexedRight.headMap(leftVal, inclusive).isEmpty();
+                                        }
+    
+                                        @Override
+                                        public boolean allMatch(Record left) {
+                                            // left GT all right -> must be nothing GTE left
+                                            // left GTE all right -> must be nothing GT left
+                                            Object leftVal = leftMapper.apply(left);
+                                            return indexedRight.tailMap(leftVal, !inclusive).isEmpty();
+                                        }
+    
+                                        @Override
+                                        public void emitMatches(Record left, Consumer<Record> sink) {
                                             Object leftVal = leftMapper.apply(left);
                                             indexedRight.headMap(leftVal, inclusive).forEach((v, records) -> {
                                                 for (Record record : records)
@@ -472,7 +553,23 @@ public class JoinPred {
                                 case LT: case LTE: {
                                     output = new MapIndex<>(indexedRight) {
                                         @Override
-                                        public void search(Record left, Consumer<Record> sink) {
+                                        public boolean anyMatch(Record left) {
+                                            // left LT any right -> must be something GT left
+                                            // left LTE any right -> must be something GTE left
+                                            Object leftVal = leftMapper.apply(left);
+                                            return !indexedRight.tailMap(leftVal, inclusive).isEmpty();
+                                        }
+    
+                                        @Override
+                                        public boolean allMatch(Record left) {
+                                            // left LT all right -> must be nothing LTE left
+                                            // left LTE all right -> must be nothing LT left
+                                            Object leftVal = leftMapper.apply(left);
+                                            return indexedRight.headMap(leftVal, !inclusive).isEmpty();
+                                        }
+    
+                                        @Override
+                                        public void emitMatches(Record left, Consumer<Record> sink) {
                                             Object leftVal = leftMapper.apply(left);
                                             indexedRight.tailMap(leftVal, inclusive).forEach((v, records) -> {
                                                 for (Record record : records)
@@ -494,7 +591,7 @@ public class JoinPred {
             BiPredicate<? super Record, ? super Record> predicate = pred.toPredicate();
             Record[] rightSide;
             try (RecordStream ds = rStream) {
-                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(FlaggedRecord::new) : ds.stream;
+                Stream<Record> s = retainUnmatchedRight() ? ds.stream.map(FlaggedRecord::new) : ds.stream;
                 rightSide = s.toArray(Record[]::new);
             }
             output = new JoinAPI.Index() {
@@ -502,9 +599,25 @@ public class JoinPred {
                 public Stream<Record> unmatchedRight() {
                     return unmatchedRecords(Arrays.stream(rightSide));
                 }
-        
+    
                 @Override
-                public void search(Record left, Consumer<Record> sink) {
+                public boolean anyMatch(Record left) {
+                    for (Record right : rightSide)
+                        if (predicate.test(left, right))
+                            return true;
+                    return false;
+                }
+    
+                @Override
+                public boolean allMatch(Record left) {
+                    for (Record right : rightSide)
+                        if (!predicate.test(left, right))
+                            return false;
+                    return true;
+                }
+    
+                @Override
+                public void emitMatches(Record left, Consumer<Record> sink) {
                     for (Record right : rightSide)
                         if (predicate.test(left, right))
                             sink.accept(right);
@@ -525,7 +638,7 @@ public class JoinPred {
             BiPredicate<? super Record, ? super Record> predicate = pred.predicate;
             Record[] rightSide;
             try (RecordStream ds = rStream) {
-                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(FlaggedRecord::new) : ds.stream;
+                Stream<Record> s = retainUnmatchedRight() ? ds.stream.map(FlaggedRecord::new) : ds.stream;
                 rightSide = s.toArray(Record[]::new);
             }
             output = new JoinAPI.Index() {
@@ -533,9 +646,25 @@ public class JoinPred {
                 public Stream<Record> unmatchedRight() {
                     return unmatchedRecords(Arrays.stream(rightSide));
                 }
+                
+                @Override
+                public boolean anyMatch(Record left) {
+                    for (Record right : rightSide)
+                        if (predicate.test(left, right))
+                            return true;
+                    return false;
+                }
     
                 @Override
-                public void search(Record left, Consumer<Record> sink) {
+                public boolean allMatch(Record left) {
+                    for (Record right : rightSide)
+                        if (!predicate.test(left, right))
+                            return false;
+                    return true;
+                }
+    
+                @Override
+                public void emitMatches(Record left, Consumer<Record> sink) {
                     for (Record right : rightSide)
                         if (predicate.test(left, right))
                             sink.accept(right);
@@ -546,49 +675,100 @@ public class JoinPred {
         private void doLeftSideMatch(Predicate<? super Record> predicate) {
             Record[] rightSide;
             try (RecordStream ds = rStream) {
-                Stream<Record> s = retainUnmatchedRight ? ds.stream.map(FlaggedRecord::new) : ds.stream;
+                Stream<Record> s = retainUnmatchedRight() ? ds.stream.map(FlaggedRecord::new) : ds.stream;
                 rightSide = s.toArray(Record[]::new);
             }
-            output = new JoinAPI.Index() {
-                @Override
-                public Stream<Record> unmatchedRight() {
-                    return unmatchedRecords(Arrays.stream(rightSide));
-                }
-        
-                @Override
-                public void search(Record left, Consumer<Record> sink) {
-                    if (predicate.test(left))
-                        for (Record right : rightSide)
-                            sink.accept(right);
-                }
-            };
+            if (rightSide.length == 0)
+                output = new JoinAPI.Index() {
+                    @Override
+                    public Stream<Record> unmatchedRight() {
+                        return Stream.empty();
+                    }
+    
+                    @Override
+                    public boolean anyMatch(Record left) {
+                        return false;
+                    }
+    
+                    @Override
+                    public boolean allMatch(Record left) {
+                        return true;
+                    }
+    
+                    @Override
+                    public void emitMatches(Record left, Consumer<Record> sink) {
+                        // Nothing matches
+                    }
+                };
+            else
+                output = new JoinAPI.Index() {
+                    @Override
+                    public Stream<Record> unmatchedRight() {
+                        return unmatchedRecords(Arrays.stream(rightSide));
+                    }
+                    
+                    @Override
+                    public boolean anyMatch(Record left) {
+                        return predicate.test(left);
+                    }
+    
+                    @Override
+                    public boolean allMatch(Record left) {
+                        return predicate.test(left);
+                    }
+    
+                    @Override
+                    public void emitMatches(Record left, Consumer<Record> sink) {
+                        if (predicate.test(left))
+                            for (Record right : rightSide)
+                                sink.accept(right);
+                    }
+                };
         }
         
         private void doRightSideMatch(Predicate<? super Record> predicate) {
             List<Record> rightSide;
             List<Record> retainedRight;
+            boolean allMatch;
             try (RecordStream ds = rStream) {
-                if (retainUnmatchedRight) {
+                if (retainUnmatchedRight()) {
                     // NOTE: Only converting because JoinAPI expects FlaggedRecords during right/full joins.
                     Map<Boolean, List<Record>> partition = ds.stream
                         .map(FlaggedRecord::new)
                         .collect(Collectors.partitioningBy(predicate));
                     rightSide = partition.get(true);
                     retainedRight = partition.get(false);
+                    allMatch = retainedRight.isEmpty();
                 }
                 else {
-                    rightSide = ds.stream.filter(predicate).collect(Collectors.toList());
+                    // Note: Concurrent writes to flag are safe, since the only read is after all writes.
+                    class Flag { boolean allMatch = true; }
+                    Flag flag = new Flag();
+                    Predicate<? super Record> flaggedPredicate = record -> predicate.test(record) || (flag.allMatch = false);
+                    rightSide = ds.stream.filter(flaggedPredicate).collect(Collectors.toList());
                     retainedRight = Collections.emptyList();
+                    allMatch = flag.allMatch;
                 }
             }
+            boolean anyMatch = !rightSide.isEmpty();
             output = new JoinAPI.Index() {
                 @Override
                 public Stream<Record> unmatchedRight() {
                     return unmatchedRecords(Stream.concat(rightSide.stream(), retainedRight.stream()));
                 }
+                
+                @Override
+                public boolean anyMatch(Record left) {
+                    return anyMatch;
+                }
+                
+                @Override
+                public boolean allMatch(Record left) {
+                    return allMatch;
+                }
         
                 @Override
-                public void search(Record left, Consumer<Record> sink) {
+                public void emitMatches(Record left, Consumer<Record> sink) {
                     for (Record right : rightSide)
                         sink.accept(right);
                 }

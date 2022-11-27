@@ -298,6 +298,94 @@ public class RecordStream implements Stream<Record> {
         return new JoinAPI(JoinAPI.JoinType.FULL, this, right).accept(onConfig, selectConfig);
     }
     
+    /**
+     * Returns a stream consisting of the records of this (left) stream that match with any records of the given right
+     * stream. This "join" streams the left-side, and for each left-side record, searches the right-side for matching
+     * records such that the (left, right) pair of records satisfy the configured join condition.
+     *
+     * <p>This operation is also known as a left semi join.
+     *
+     * <p>This is a stateless intermediate operation on the left stream, and a stateful intermediate operation on the
+     * right stream.
+     *
+     * <p>Subsequent changes to the sequential/parallel execution mode of the returned stream will propagate to the left
+     * stream, but not the right stream. When the returned stream is closed, the close handlers for both input streams
+     * are invoked.
+     *
+     * @param right the right-side stream
+     * @param onConfig a function that configures the join condition
+     * @return the new stream
+     */
+    public RecordStream leftAnyMatch(RecordStream right,
+                                     Function<JoinAPI.On, JoinPred> onConfig) {
+        return new JoinAPI(JoinAPI.JoinType.LEFT_ANY_MATCH, this, right).semiAccept(onConfig);
+    }
+    
+    /**
+     * Returns a stream consisting of the records of this (left) stream that do not match with any records of the given
+     * right stream. This "join" streams the left-side, and for each left-side record, searches the right-side for
+     * matching records such that the (left, right) pair of records satisfy the configured join condition.
+     *
+     * <p>This operation is also known as a left anti (semi) join.
+     *
+     * <p>This is a stateless intermediate operation on the left stream, and a stateful intermediate operation on the
+     * right stream.
+     *
+     * <p>Subsequent changes to the sequential/parallel execution mode of the returned stream will propagate to the left
+     * stream, but not the right stream. When the returned stream is closed, the close handlers for both input streams
+     * are invoked.
+     *
+     * @param right the right-side stream
+     * @param onConfig a function that configures the join condition
+     * @return the new stream
+     */
+    public RecordStream leftNoneMatch(RecordStream right,
+                                      Function<JoinAPI.On, JoinPred> onConfig) {
+        return new JoinAPI(JoinAPI.JoinType.LEFT_NONE_MATCH, this, right).semiAccept(onConfig);
+    }
+    
+    /**
+     * Returns a stream consisting of the records of this (left) stream that match with all records of the given right
+     * stream. This "join" streams the left-side, and for each left-side record, searches the right-side for matching
+     * records such that the (left, right) pair of records satisfy the configured join condition.
+     *
+     * <p>This is a stateless intermediate operation on the left stream, and a stateful intermediate operation on the
+     * right stream.
+     *
+     * <p>Subsequent changes to the sequential/parallel execution mode of the returned stream will propagate to the left
+     * stream, but not the right stream. When the returned stream is closed, the close handlers for both input streams
+     * are invoked.
+     *
+     * @param right the right-side stream
+     * @param onConfig a function that configures the join condition
+     * @return the new stream
+     */
+    public RecordStream leftAllMatch(RecordStream right,
+                                     Function<JoinAPI.On, JoinPred> onConfig) {
+        return new JoinAPI(JoinAPI.JoinType.LEFT_ALL_MATCH, this, right).semiAccept(onConfig);
+    }
+    
+    /**
+     * Returns a stream consisting of the records of this (left) stream that do not match with all records of the given
+     * right stream. This "join" streams the left-side, and for each left-side record, searches the right-side for
+     * matching records such that the (left, right) pair of records satisfy the configured join condition.
+     *
+     * <p>This is a stateless intermediate operation on the left stream, and a stateful intermediate operation on the
+     * right stream.
+     *
+     * <p>Subsequent changes to the sequential/parallel execution mode of the returned stream will propagate to the left
+     * stream, but not the right stream. When the returned stream is closed, the close handlers for both input streams
+     * are invoked.
+     *
+     * @param right the right-side stream
+     * @param onConfig a function that configures the join condition
+     * @return the new stream
+     */
+    public RecordStream leftNotAllMatch(RecordStream right,
+                                        Function<JoinAPI.On, JoinPred> onConfig) {
+        return new JoinAPI(JoinAPI.JoinType.LEFT_NOT_ALL_MATCH, this, right).semiAccept(onConfig);
+    }
+    
     // --- old ---
     
     @Override

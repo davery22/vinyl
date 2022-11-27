@@ -212,6 +212,61 @@ public class RecordStreamTest {
     }
     
     @Test
+    void testSimpleLeftSemiJoin() {
+        RecordSet data = RecordStream.aux(IntStream.range(0, 10)).boxed()
+            .mapToRecord(into -> into.field(A_INT, i -> i))
+            .toRecordSet();
+    
+        RecordSet filtered = data.stream()
+            .select(select -> select
+                .field(A_INT)
+                .field(A_STRING, o -> "Hello " + o.get(A_INT))
+            )
+            .filter(o -> o.get(A_INT) > 2)
+            .leftAnyMatch(data.stream().filter(o -> o.get(A_INT) < 8),
+                          on -> on.eq(on.left(A_INT), on.right(A_INT))
+            )
+            .sorted()
+            .toRecordSet();
+        
+        RecordSet expected = unsafeRecordSet(new Object[][]{
+            { A_INT, A_STRING },
+            { 3, "Hello 3" },
+            { 4, "Hello 4" },
+            { 5, "Hello 5" },
+            { 6, "Hello 6" },
+            { 7, "Hello 7" },
+        });
+        assertEquals(expected, filtered);
+    }
+    
+    @Test
+    void testSimpleLeftAntiJoin() {
+        RecordSet data = RecordStream.aux(IntStream.range(0, 10)).boxed()
+            .mapToRecord(into -> into.field(A_INT, i -> i))
+            .toRecordSet();
+        
+        RecordSet filtered = data.stream()
+            .select(select -> select
+                .field(A_INT)
+                .field(A_STRING, o -> "Hello " + o.get(A_INT))
+            )
+            .filter(o -> o.get(A_INT) > 2)
+            .leftNoneMatch(data.stream().filter(o -> o.get(A_INT) < 8),
+                          on -> on.eq(on.left(A_INT), on.right(A_INT))
+            )
+            .sorted()
+            .toRecordSet();
+        
+        RecordSet expected = unsafeRecordSet(new Object[][]{
+            { A_INT, A_STRING },
+            { 8, "Hello 8" },
+            { 9, "Hello 9" },
+        });
+        assertEquals(expected, filtered);
+    }
+    
+    @Test
     void testJoinOnNEQ() {
         RecordSet data = RecordStream.aux(IntStream.range(0, 10)).boxed()
             .mapToRecord(into -> into.field(A_INT, i -> i))

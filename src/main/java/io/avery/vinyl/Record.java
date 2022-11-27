@@ -26,6 +26,7 @@ package io.avery.vinyl;
 
 import java.util.*;
 import java.util.function.Function;
+import java.util.stream.Stream;
 
 /**
  * A shallowly immutable carrier for a fixed set of values, determined by the record {@link Header header}. Values are

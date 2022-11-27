@@ -386,6 +386,16 @@ public class RecordStream implements Stream<Record> {
         return new JoinAPI(JoinAPI.JoinType.LEFT_NOT_ALL_MATCH, this, right).semiAccept(onConfig);
     }
     
+    public <R> RecordStream crossApply(Function<? super Record, ? extends Stream<? extends R>> mapper,
+                                       Consumer<ApplyAPI<R>> config) {
+        return new ApplyAPI<R>(ApplyAPI.ApplyType.CROSS, this).accept(mapper, config);
+    }
+    
+    public <R> RecordStream outerApply(Function<? super Record, ? extends Stream<? extends R>> mapper,
+                                       Consumer<ApplyAPI<R>> config) {
+        return new ApplyAPI<R>(ApplyAPI.ApplyType.OUTER, this).accept(mapper, config);
+    }
+    
     // --- old ---
     
     @Override
@@ -648,6 +658,11 @@ public class RecordStream implements Stream<Record> {
          */
         public RecordStream mapToRecord(Consumer<IntoAPI<T>> config) {
             return new IntoAPI<T>().accept(this, config);
+        }
+        
+        public <R> RecordStream flatMapToRecord(Function<? super T, ? extends Stream<? extends R>> mapper,
+                                                Consumer<BiIntoAPI<T, R>> config) {
+            return new BiIntoAPI<T, R>().accept(this, mapper, config);
         }
         
         // --- old ---

@@ -1580,37 +1580,6 @@ public class RecordStreamTest {
         assertEquals(expected, data);
     }
     
-    @Test
-    void testFlatMapToRecord1() {
-        RecordSet data = RecordStream.aux(IntStream.range(0, 3)).boxed()
-//            .flatMap(i -> IntStream.range(i, i+3)
-//                .mapToObj(j -> new Object(){ final int x = i; final int y = j; }))
-//            .mapToRecord(into -> into
-//                .field(A_INT, o -> o.x)
-//                .field(B_INT, o -> o.y)
-//            )
-            .flatMapToRecord(i -> IntStream.range(i, i+3).boxed(),
-                             into -> into
-                                 .leftField(A_INT, i -> i)
-                                 .rightField(B_INT, j -> j)
-            )
-            .toRecordSet();
-        
-        RecordSet expected = unsafeRecordSet(new Object[][]{
-            { A_INT, B_INT },
-            { 0, 0 },
-            { 0, 1 },
-            { 0, 2 },
-            { 1, 1 },
-            { 1, 2 },
-            { 1, 3 },
-            { 2, 2 },
-            { 2, 3 },
-            { 2, 4 }
-        });
-        assertEquals(expected, data);
-    }
-    
     @SuppressWarnings({"unchecked", "rawtypes"})
     private RecordSet unsafeRecordSet(Object[][] arr) {
         Object[] fields = arr[0];

@@ -274,11 +274,39 @@ A&gt;&nbsp;R</code></div>
 <div class="block">Returns a stream that performs an inner join between this (left) stream and the given right stream.</div>
 </div>
 <div class="col-first odd-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4"><code><a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a></code></div>
+<div class="col-second odd-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4"><code><a href="#leftAllMatch(io.avery.vinyl.RecordStream,java.util.function.Function)" class="member-name-link">leftAllMatch</a><wbr>(<a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a>&nbsp;right,
+ <a href="https://docs.oracle.com/javase/9/docs/api/java/util/function/Function.html" title="class or interface in java.util.function" class="external-link">Function</a>&lt;<a href="JoinAPI.On.html" title="class in io.avery.vinyl">JoinAPI.On</a>,<wbr><a href="JoinPred.html" title="class in io.avery.vinyl">JoinPred</a>&gt;&nbsp;onConfig)</code></div>
+<div class="col-last odd-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4">
+<div class="block">Returns a stream consisting of the records of this (left) stream that match with all records of the given right
+ stream.</div>
+</div>
+<div class="col-first even-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4"><code><a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a></code></div>
+<div class="col-second even-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4"><code><a href="#leftAnyMatch(io.avery.vinyl.RecordStream,java.util.function.Function)" class="member-name-link">leftAnyMatch</a><wbr>(<a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a>&nbsp;right,
+ <a href="https://docs.oracle.com/javase/9/docs/api/java/util/function/Function.html" title="class or interface in java.util.function" class="external-link">Function</a>&lt;<a href="JoinAPI.On.html" title="class in io.avery.vinyl">JoinAPI.On</a>,<wbr><a href="JoinPred.html" title="class in io.avery.vinyl">JoinPred</a>&gt;&nbsp;onConfig)</code></div>
+<div class="col-last even-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4">
+<div class="block">Returns a stream consisting of the records of this (left) stream that match with any records of the given right
+ stream.</div>
+</div>
+<div class="col-first odd-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4"><code><a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a></code></div>
 <div class="col-second odd-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4"><code><a href="#leftJoin(io.avery.vinyl.RecordStream,java.util.function.Function,java.util.function.Consumer)" class="member-name-link">leftJoin</a><wbr>(<a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a>&nbsp;right,
  <a href="https://docs.oracle.com/javase/9/docs/api/java/util/function/Function.html" title="class or interface in java.util.function" class="external-link">Function</a>&lt;<a href="JoinAPI.On.html" title="class in io.avery.vinyl">JoinAPI.On</a>,<wbr><a href="JoinPred.html" title="class in io.avery.vinyl">JoinPred</a>&gt;&nbsp;onConfig,
  <a href="https://docs.oracle.com/javase/9/docs/api/java/util/function/Consumer.html" title="class or interface in java.util.function" class="external-link">Consumer</a>&lt;<a href="JoinAPI.Select.html" title="class in io.avery.vinyl">JoinAPI.Select</a>&gt;&nbsp;selectConfig)</code></div>
 <div class="col-last odd-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4">
 <div class="block">Returns a stream that performs a left outer join between this (left) stream and the given right stream.</div>
+</div>
+<div class="col-first even-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4"><code><a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a></code></div>
+<div class="col-second even-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4"><code><a href="#leftNoneMatch(io.avery.vinyl.RecordStream,java.util.function.Function)" class="member-name-link">leftNoneMatch</a><wbr>(<a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a>&nbsp;right,
+ <a href="https://docs.oracle.com/javase/9/docs/api/java/util/function/Function.html" title="class or interface in java.util.function" class="external-link">Function</a>&lt;<a href="JoinAPI.On.html" title="class in io.avery.vinyl">JoinAPI.On</a>,<wbr><a href="JoinPred.html" title="class in io.avery.vinyl">JoinPred</a>&gt;&nbsp;onConfig)</code></div>
+<div class="col-last even-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4">
+<div class="block">Returns a stream consisting of the records of this (left) stream that do not match with any records of the given
+ right stream.</div>
+</div>
+<div class="col-first odd-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4"><code><a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a></code></div>
+<div class="col-second odd-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4"><code><a href="#leftNotAllMatch(io.avery.vinyl.RecordStream,java.util.function.Function)" class="member-name-link">leftNotAllMatch</a><wbr>(<a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a>&nbsp;right,
+ <a href="https://docs.oracle.com/javase/9/docs/api/java/util/function/Function.html" title="class or interface in java.util.function" class="external-link">Function</a>&lt;<a href="JoinAPI.On.html" title="class in io.avery.vinyl">JoinAPI.On</a>,<wbr><a href="JoinPred.html" title="class in io.avery.vinyl">JoinPred</a>&gt;&nbsp;onConfig)</code></div>
+<div class="col-last odd-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4">
+<div class="block">Returns a stream consisting of the records of this (left) stream that do not match with all records of the given
+ right stream.</div>
 </div>
 <div class="col-first even-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4"><code><a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a></code></div>
 <div class="col-second even-row-color method-summary-table method-summary-table-tab2 method-summary-table-tab4"><code><a href="#limit(long)" class="member-name-link">limit</a><wbr>(long&nbsp;maxSize)</code></div>
@@ -672,6 +700,106 @@ A&gt;&nbsp;R</code></div>
 <dd><code>right</code> - the right-side stream</dd>
 <dd><code>onConfig</code> - a function that configures the join condition</dd>
 <dd><code>selectConfig</code> - a consumer that configures the output fields</dd>
+<dt>Returns:</dt>
+<dd>the new stream</dd>
+</dl>
+</section>
+</li>
+<li>
+<section class="detail" id="leftAnyMatch(io.avery.vinyl.RecordStream,java.util.function.Function)">
+<h3>leftAnyMatch</h3>
+<div class="member-signature"><span class="modifiers">public</span>&nbsp;<span class="return-type"><a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a></span>&nbsp;<span class="element-name">leftAnyMatch</span><wbr><span class="parameters">(<a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a>&nbsp;right,
+ <a href="https://docs.oracle.com/javase/9/docs/api/java/util/function/Function.html" title="class or interface in java.util.function" class="external-link">Function</a>&lt;<a href="JoinAPI.On.html" title="class in io.avery.vinyl">JoinAPI.On</a>,<wbr><a href="JoinPred.html" title="class in io.avery.vinyl">JoinPred</a>&gt;&nbsp;onConfig)</span></div>
+<div class="block">Returns a stream consisting of the records of this (left) stream that match with any records of the given right
+ stream. This "join" streams the left-side, and for each left-side record, searches the right-side for matching
+ records such that the (left, right) pair of records satisfy the configured join condition.
+
+ <p>This operation is also known as a left semi join.
+
+ <p>This is a stateless intermediate operation on the left stream, and a stateful intermediate operation on the
+ right stream.
+
+ <p>Subsequent changes to the sequential/parallel execution mode of the returned stream will propagate to the left
+ stream, but not the right stream. When the returned stream is closed, the close handlers for both input streams
+ are invoked.</div>
+<dl class="notes">
+<dt>Parameters:</dt>
+<dd><code>right</code> - the right-side stream</dd>
+<dd><code>onConfig</code> - a function that configures the join condition</dd>
+<dt>Returns:</dt>
+<dd>the new stream</dd>
+</dl>
+</section>
+</li>
+<li>
+<section class="detail" id="leftNoneMatch(io.avery.vinyl.RecordStream,java.util.function.Function)">
+<h3>leftNoneMatch</h3>
+<div class="member-signature"><span class="modifiers">public</span>&nbsp;<span class="return-type"><a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a></span>&nbsp;<span class="element-name">leftNoneMatch</span><wbr><span class="parameters">(<a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a>&nbsp;right,
+ <a href="https://docs.oracle.com/javase/9/docs/api/java/util/function/Function.html" title="class or interface in java.util.function" class="external-link">Function</a>&lt;<a href="JoinAPI.On.html" title="class in io.avery.vinyl">JoinAPI.On</a>,<wbr><a href="JoinPred.html" title="class in io.avery.vinyl">JoinPred</a>&gt;&nbsp;onConfig)</span></div>
+<div class="block">Returns a stream consisting of the records of this (left) stream that do not match with any records of the given
+ right stream. This "join" streams the left-side, and for each left-side record, searches the right-side for
+ matching records such that the (left, right) pair of records satisfy the configured join condition.
+
+ <p>This operation is also known as a left anti (semi) join.
+
+ <p>This is a stateless intermediate operation on the left stream, and a stateful intermediate operation on the
+ right stream.
+
+ <p>Subsequent changes to the sequential/parallel execution mode of the returned stream will propagate to the left
+ stream, but not the right stream. When the returned stream is closed, the close handlers for both input streams
+ are invoked.</div>
+<dl class="notes">
+<dt>Parameters:</dt>
+<dd><code>right</code> - the right-side stream</dd>
+<dd><code>onConfig</code> - a function that configures the join condition</dd>
+<dt>Returns:</dt>
+<dd>the new stream</dd>
+</dl>
+</section>
+</li>
+<li>
+<section class="detail" id="leftAllMatch(io.avery.vinyl.RecordStream,java.util.function.Function)">
+<h3>leftAllMatch</h3>
+<div class="member-signature"><span class="modifiers">public</span>&nbsp;<span class="return-type"><a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a></span>&nbsp;<span class="element-name">leftAllMatch</span><wbr><span class="parameters">(<a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a>&nbsp;right,
+ <a href="https://docs.oracle.com/javase/9/docs/api/java/util/function/Function.html" title="class or interface in java.util.function" class="external-link">Function</a>&lt;<a href="JoinAPI.On.html" title="class in io.avery.vinyl">JoinAPI.On</a>,<wbr><a href="JoinPred.html" title="class in io.avery.vinyl">JoinPred</a>&gt;&nbsp;onConfig)</span></div>
+<div class="block">Returns a stream consisting of the records of this (left) stream that match with all records of the given right
+ stream. This "join" streams the left-side, and for each left-side record, searches the right-side for matching
+ records such that the (left, right) pair of records satisfy the configured join condition.
+
+ <p>This is a stateless intermediate operation on the left stream, and a stateful intermediate operation on the
+ right stream.
+
+ <p>Subsequent changes to the sequential/parallel execution mode of the returned stream will propagate to the left
+ stream, but not the right stream. When the returned stream is closed, the close handlers for both input streams
+ are invoked.</div>
+<dl class="notes">
+<dt>Parameters:</dt>
+<dd><code>right</code> - the right-side stream</dd>
+<dd><code>onConfig</code> - a function that configures the join condition</dd>
+<dt>Returns:</dt>
+<dd>the new stream</dd>
+</dl>
+</section>
+</li>
+<li>
+<section class="detail" id="leftNotAllMatch(io.avery.vinyl.RecordStream,java.util.function.Function)">
+<h3>leftNotAllMatch</h3>
+<div class="member-signature"><span class="modifiers">public</span>&nbsp;<span class="return-type"><a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a></span>&nbsp;<span class="element-name">leftNotAllMatch</span><wbr><span class="parameters">(<a href="RecordStream.html" title="class in io.avery.vinyl">RecordStream</a>&nbsp;right,
+ <a href="https://docs.oracle.com/javase/9/docs/api/java/util/function/Function.html" title="class or interface in java.util.function" class="external-link">Function</a>&lt;<a href="JoinAPI.On.html" title="class in io.avery.vinyl">JoinAPI.On</a>,<wbr><a href="JoinPred.html" title="class in io.avery.vinyl">JoinPred</a>&gt;&nbsp;onConfig)</span></div>
+<div class="block">Returns a stream consisting of the records of this (left) stream that do not match with all records of the given
+ right stream. This "join" streams the left-side, and for each left-side record, searches the right-side for
+ matching records such that the (left, right) pair of records satisfy the configured join condition.
+
+ <p>This is a stateless intermediate operation on the left stream, and a stateful intermediate operation on the
+ right stream.
+
+ <p>Subsequent changes to the sequential/parallel execution mode of the returned stream will propagate to the left
+ stream, but not the right stream. When the returned stream is closed, the close handlers for both input streams
+ are invoked.</div>
+<dl class="notes">
+<dt>Parameters:</dt>
+<dd><code>right</code> - the right-side stream</dd>
+<dd><code>onConfig</code> - a function that configures the join condition</dd>
 <dt>Returns:</dt>
 <dd>the new stream</dd>
 </dl>

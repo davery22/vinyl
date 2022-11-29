@@ -71,6 +71,16 @@ loadScripts(document, 'script');</script>
 <div class="block">Defines (or redefines) each field from the left-side stream, excluding the given excluded fields, as the
  lookup of the same field on each left-side input record.</div>
 </dd>
+<dt><a href="../io/avery/vinyl/RecordStream.html#leftAllMatch(io.avery.vinyl.RecordStream,java.util.function.Function)" class="member-name-link">leftAllMatch(RecordStream, Function&lt;JoinAPI.On, JoinPred&gt;)</a> - Method in class io.avery.vinyl.<a href="../io/avery/vinyl/RecordStream.html" title="class in io.avery.vinyl">RecordStream</a></dt>
+<dd>
+<div class="block">Returns a stream consisting of the records of this (left) stream that match with all records of the given right
+ stream.</div>
+</dd>
+<dt><a href="../io/avery/vinyl/RecordStream.html#leftAnyMatch(io.avery.vinyl.RecordStream,java.util.function.Function)" class="member-name-link">leftAnyMatch(RecordStream, Function&lt;JoinAPI.On, JoinPred&gt;)</a> - Method in class io.avery.vinyl.<a href="../io/avery/vinyl/RecordStream.html" title="class in io.avery.vinyl">RecordStream</a></dt>
+<dd>
+<div class="block">Returns a stream consisting of the records of this (left) stream that match with any records of the given right
+ stream.</div>
+</dd>
 <dt><a href="../io/avery/vinyl/JoinAPI.Select.html#leftField(io.avery.vinyl.Field)" class="member-name-link">leftField(Field&lt;?&gt;)</a> - Method in class io.avery.vinyl.<a href="../io/avery/vinyl/JoinAPI.Select.html" title="class in io.avery.vinyl">JoinAPI.Select</a></dt>
 <dd>
 <div class="block">Defines (or redefines) the given field as the lookup of the same field on each left-side input record.</div>
@@ -87,6 +97,16 @@ loadScripts(document, 'script');</script>
 <dt><a href="../io/avery/vinyl/JoinAPI.On.html#leftMatch(java.util.function.Predicate)" class="member-name-link">leftMatch(Predicate&lt;? super Record&gt;)</a> - Method in class io.avery.vinyl.<a href="../io/avery/vinyl/JoinAPI.On.html" title="class in io.avery.vinyl">JoinAPI.On</a></dt>
 <dd>
 <div class="block">Creates a <a href="../io/avery/vinyl/JoinPred.html" title="class in io.avery.vinyl"><code>JoinPred</code></a> that passes if the given plain predicate over left-side records passes.</div>
+</dd>
+<dt><a href="../io/avery/vinyl/RecordStream.html#leftNoneMatch(io.avery.vinyl.RecordStream,java.util.function.Function)" class="member-name-link">leftNoneMatch(RecordStream, Function&lt;JoinAPI.On, JoinPred&gt;)</a> - Method in class io.avery.vinyl.<a href="../io/avery/vinyl/RecordStream.html" title="class in io.avery.vinyl">RecordStream</a></dt>
+<dd>
+<div class="block">Returns a stream consisting of the records of this (left) stream that do not match with any records of the given
+ right stream.</div>
+</dd>
+<dt><a href="../io/avery/vinyl/RecordStream.html#leftNotAllMatch(io.avery.vinyl.RecordStream,java.util.function.Function)" class="member-name-link">leftNotAllMatch(RecordStream, Function&lt;JoinAPI.On, JoinPred&gt;)</a> - Method in class io.avery.vinyl.<a href="../io/avery/vinyl/RecordStream.html" title="class in io.avery.vinyl">RecordStream</a></dt>
+<dd>
+<div class="block">Returns a stream consisting of the records of this (left) stream that do not match with all records of the given
+ right stream.</div>
 </dd>
 <dt><a href="../io/avery/vinyl/RecordStream.Aux.html#limit(long)" class="member-name-link">limit(long)</a> - Method in class io.avery.vinyl.<a href="../io/avery/vinyl/RecordStream.Aux.html" title="class in io.avery.vinyl">RecordStream.Aux</a></dt>
 <dd>&nbsp;</dd>

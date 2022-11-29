@@ -333,7 +333,7 @@ loadScripts(document, 'script');</script>
 <h3>cumeDist</h3>
 <div class="member-signature"><span class="modifiers">public static</span>&nbsp;<span class="return-type"><a href="https://docs.oracle.com/javase/9/docs/api/java/util/function/BiConsumer.html" title="class or interface in java.util.function" class="external-link">BiConsumer</a>&lt;<a href="https://docs.oracle.com/javase/9/docs/api/java/util/List.html" title="class or interface in java.util" class="external-link">List</a>&lt;<a href="Record.html" title="class in io.avery.vinyl">Record</a>&gt;,<wbr><a href="https://docs.oracle.com/javase/9/docs/api/java/util/function/Consumer.html" title="class or interface in java.util.function" class="external-link">Consumer</a>&lt;<a href="https://docs.oracle.com/javase/9/docs/api/java/lang/Double.html" title="class or interface in java.lang" class="external-link">Double</a>&gt;&gt;</span>&nbsp;<span class="element-name">cumeDist</span><wbr><span class="parameters">(<a href="https://docs.oracle.com/javase/9/docs/api/java/util/Comparator.html" title="class or interface in java.util" class="external-link">Comparator</a>&lt;? super <a href="Record.html" title="class in io.avery.vinyl">Record</a>&gt;&nbsp;comparator)</span></div>
 <div class="block">Returns an analytic function that emits the cumulative distribution value of each record in the partition. This
- value is defined as the number of records preceding a record, plus consecutively succeeding tied records, all
+ value is defined as the number of records preceding a record, plus consecutively proceeding tied records, all
  divided by the total number of records. Consecutive records are considered tied if they compare equal using the
  given comparator. The cumulative distribution value is always greater than <code>0</code> and less than or equal to
  <code>1</code>.
@@ -415,10 +415,9 @@ loadScripts(document, 'script');</script>
 <div class="block">Returns an analytic function that emits one value for the partition, derived by interpolation from the values of
  the records that are positioned closest on either side of the given percentile's index. More specifically, the
  percentile is multiplied by the last index in the partition, yielding an exact percentile index. Then a value is
- emitted by applying the given function to the two records on either side of the percentile index, and
- interpolating a value between them based on the relative distance from the percentile index to each record index.
- If the percentile index is a mathematical integer, then interpolation can be skipped, as the percentile index
- will exactly match a single record index.
+ emitted by applying the given function to the two records on either side of the percentile index, and linearly
+ interpolating a value between the records' values. If the percentile index is a mathematical integer, then
+ interpolation can be skipped, as the percentile index will exactly match a single record index.
 
  <p>The given percentile must be greater than or equal to <code>0</code> and less than or equal to <code>1</code>, otherwise
  an <a href="https://docs.oracle.com/javase/9/docs/api/java/lang/IllegalArgumentException.html" title="class or interface in java.lang" class="external-link"><code>IllegalArgumentException</code></a> is thrown.

@@ -22,6 +22,11 @@ To add a dependency on Vinyl using Maven, use the following:
 </dependency>
 ```
 
+## Quick Overview
+
+The [package documentation](https://davery22.github.io/vinyl/javadoc/) gives a couple examples and introduces core
+concepts.
+
 ## A Guided Example
 
 To make use of Vinyl, we first need to declare some "fields" that we will use later in relational operations.
@@ -345,9 +350,3 @@ RecordSet data = RecordStream.aux(children.stream())
     )
     .toRecordSet();
 ```
-
----
-
-This example gives a sense of how Vinyl models relational operations, but it does not explore the extent of what Vinyl
-can do. For more information and examples, see the [package documentation](https://davery22.github.io/vinyl/javadoc/).
-

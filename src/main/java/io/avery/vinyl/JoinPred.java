@@ -31,6 +31,9 @@ import java.util.function.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static io.avery.vinyl.Utils.decodeNull;
+import static io.avery.vinyl.Utils.encodeNull;
+
 /**
  * An opaque value representing a predicate defined by {@link JoinAPI.On}.
  */
@@ -75,37 +78,37 @@ public class JoinPred {
             CEQ {
                 @Override
                 boolean test(Object a, Object b) {
-                    return Utils.DEFAULT_COMPARATOR.compare(a, b) == 0;
+                    return Utils.NULLS_FIRST_COMPARATOR.compare(a, b) == 0;
                 }
             },
             CNEQ {
                 @Override
                 boolean test(Object a, Object b) {
-                    return Utils.DEFAULT_COMPARATOR.compare(a, b) != 0;
+                    return Utils.NULLS_FIRST_COMPARATOR.compare(a, b) != 0;
                 }
             },
             GT {
                 @Override
                 boolean test(Object a, Object b) {
-                    return Utils.DEFAULT_COMPARATOR.compare(a, b) > 0;
+                    return Utils.NULLS_FIRST_COMPARATOR.compare(a, b) > 0;
                 }
             },
             GTE {
                 @Override
                 boolean test(Object a, Object b) {
-                    return Utils.DEFAULT_COMPARATOR.compare(a, b) >= 0;
+                    return Utils.NULLS_FIRST_COMPARATOR.compare(a, b) >= 0;
                 }
             },
             LT {
                 @Override
                 boolean test(Object a, Object b) {
-                    return Utils.DEFAULT_COMPARATOR.compare(a, b) < 0;
+                    return Utils.NULLS_FIRST_COMPARATOR.compare(a, b) < 0;
                 }
             },
             LTE {
                 @Override
                 boolean test(Object a, Object b) {
-                    return Utils.DEFAULT_COMPARATOR.compare(a, b) <= 0;
+                    return Utils.NULLS_FIRST_COMPARATOR.compare(a, b) <= 0;
                 }
             },
             ;
@@ -438,31 +441,32 @@ public class JoinPred {
                         leftMapper = ((JoinExpr.RecordExpr<?>) pred.right).mapper;
                         rightMapper = ((JoinExpr.RecordExpr<?>) pred.left).mapper;
                     }
+                    Function<? super Record, ?> classifier = record -> encodeNull(rightMapper.apply(record));
                     switch (pred.op) {
                         case EQ: case NEQ: case CEQ: case CNEQ: {
                             Binary.Op op = pred.op;
                             Supplier<Map<Object, List<Record>>> mapFactory =
                                 op == Binary.Op.CEQ || op == Binary.Op.CNEQ
-                                    ? () -> new TreeMap<>(Utils.DEFAULT_COMPARATOR)
+                                    ? () -> new TreeMap<>(Utils.NILS_FIRST_COMPARATOR)
                                     : HashMap::new;
                             Map<Object, List<Record>> indexedRight;
                             try (RecordStream ds = rStream) {
                                 Stream<Record> s = retainUnmatchedRight() ? ds.stream.map(FlaggedRecord::new) : ds.stream;
-                                indexedRight = s.collect(Collectors.groupingBy(rightMapper, mapFactory, Collectors.toList()));
+                                indexedRight = s.collect(Collectors.groupingBy(classifier, mapFactory, Collectors.toList()));
                             }
                             if (op == Binary.Op.EQ || op == Binary.Op.CEQ) {
                                 output = new MapIndex<>(indexedRight) {
                                     @Override
                                     public boolean anyMatch(Record left) {
                                         Object leftVal = leftMapper.apply(left);
-                                        return indexedRight.get(leftVal) != null;
+                                        return indexedRight.get(encodeNull(leftVal)) != null;
                                     }
     
                                     @Override
                                     public boolean allMatch(Record left) {
                                         Object leftVal = leftMapper.apply(left);
                                         for (Object rightVal : indexedRight.keySet())
-                                            if (!op.test(leftVal, rightVal))
+                                            if (!op.test(leftVal, decodeNull(rightVal)))
                                                 return false;
                                         return true;
                                     }
@@ -470,7 +474,7 @@ public class JoinPred {
                                     @Override
                                     public void emitMatches(Record left, Consumer<Record> sink) {
                                         Object leftVal = leftMapper.apply(left);
-                                        List<Record> records = indexedRight.get(leftVal);
+                                        List<Record> records = indexedRight.get(encodeNull(leftVal));
                                         if (records != null)
                                             for (Record record : records)
                                                 sink.accept(record);
@@ -483,7 +487,7 @@ public class JoinPred {
                                     public boolean anyMatch(Record left) {
                                         Object leftVal = leftMapper.apply(left);
                                         for (Object rightVal : indexedRight.keySet())
-                                            if (op.test(leftVal, rightVal))
+                                            if (op.test(leftVal, decodeNull(rightVal)))
                                                 return true;
                                         return false;
                                     }
@@ -492,7 +496,7 @@ public class JoinPred {
                                     public boolean allMatch(Record left) {
                                         Object leftVal = leftMapper.apply(left);
                                         for (Object rightVal : indexedRight.keySet())
-                                            if (!op.test(leftVal, rightVal))
+                                            if (!op.test(leftVal, decodeNull(rightVal)))
                                                 return false;
                                         return true;
                                     }
@@ -501,7 +505,7 @@ public class JoinPred {
                                     public void emitMatches(Record left, Consumer<Record> sink) {
                                         Object leftVal = leftMapper.apply(left);
                                         indexedRight.forEach((rightVal, records) -> {
-                                            if (op.test(leftVal, rightVal))
+                                            if (op.test(leftVal, decodeNull(rightVal)))
                                                 for (Record record : records)
                                                     sink.accept(record);
                                         });
@@ -518,7 +522,7 @@ public class JoinPred {
                             TreeMap<Object, List<Record>> indexedRight;
                             try (RecordStream ds = rStream) {
                                 Stream<Record> s = retainUnmatchedRight() ? ds.stream.map(FlaggedRecord::new) : ds.stream;
-                                indexedRight = s.collect(Collectors.groupingBy(rightMapper, () -> new TreeMap<>(Utils.DEFAULT_COMPARATOR), Collectors.toList()));
+                                indexedRight = s.collect(Collectors.groupingBy(classifier, () -> new TreeMap<>(Utils.NILS_FIRST_COMPARATOR), Collectors.toList()));
                             }
                             switch (op) {
                                 case GT: case GTE: {
@@ -528,7 +532,7 @@ public class JoinPred {
                                             // left GT any right -> must be something LT left
                                             // left GTE any right -> must be something LTE left
                                             Object leftVal = leftMapper.apply(left);
-                                            return !indexedRight.headMap(leftVal, inclusive).isEmpty();
+                                            return !indexedRight.headMap(encodeNull(leftVal), inclusive).isEmpty();
                                         }
     
                                         @Override
@@ -536,13 +540,13 @@ public class JoinPred {
                                             // left GT all right -> must be nothing GTE left
                                             // left GTE all right -> must be nothing GT left
                                             Object leftVal = leftMapper.apply(left);
-                                            return indexedRight.tailMap(leftVal, !inclusive).isEmpty();
+                                            return indexedRight.tailMap(encodeNull(leftVal), !inclusive).isEmpty();
                                         }
     
                                         @Override
                                         public void emitMatches(Record left, Consumer<Record> sink) {
                                             Object leftVal = leftMapper.apply(left);
-                                            indexedRight.headMap(leftVal, inclusive).forEach((v, records) -> {
+                                            indexedRight.headMap(encodeNull(leftVal), inclusive).forEach((v, records) -> {
                                                 for (Record record : records)
                                                     sink.accept(record);
                                             });
@@ -557,7 +561,7 @@ public class JoinPred {
                                             // left LT any right -> must be something GT left
                                             // left LTE any right -> must be something GTE left
                                             Object leftVal = leftMapper.apply(left);
-                                            return !indexedRight.tailMap(leftVal, inclusive).isEmpty();
+                                            return !indexedRight.tailMap(encodeNull(leftVal), inclusive).isEmpty();
                                         }
     
                                         @Override
@@ -565,13 +569,13 @@ public class JoinPred {
                                             // left LT all right -> must be nothing LTE left
                                             // left LTE all right -> must be nothing LT left
                                             Object leftVal = leftMapper.apply(left);
-                                            return indexedRight.headMap(leftVal, !inclusive).isEmpty();
+                                            return indexedRight.headMap(encodeNull(leftVal), !inclusive).isEmpty();
                                         }
     
                                         @Override
                                         public void emitMatches(Record left, Consumer<Record> sink) {
                                             Object leftVal = leftMapper.apply(left);
-                                            indexedRight.tailMap(leftVal, inclusive).forEach((v, records) -> {
+                                            indexedRight.tailMap(encodeNull(leftVal), inclusive).forEach((v, records) -> {
                                                 for (Record record : records)
                                                     sink.accept(record);
                                             });

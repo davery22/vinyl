@@ -79,6 +79,25 @@ public class Header {
     }
     
     /**
+     * On the given configurator, defines (or redefines) each field in this header as the lookup of the same field on
+     * each input record.
+     *
+     * <p>This method behaves equivalently to:
+     *
+     * <pre>{@code
+     *     for (Field field : header.fields())
+     *         config.field(field, field::get);
+     * }</pre>
+     *
+     * @param config the configurator
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public void selectAllFields(IntoAPI<Record> config) {
+        for (Field field : fields)
+            config.field(field, field::get);
+    }
+    
+    /**
      * Returns {@code true} if and only if the given object is a header containing the same fields in the same order as
      * this header.
      *

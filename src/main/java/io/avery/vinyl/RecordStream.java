@@ -453,7 +453,7 @@ public class RecordStream implements Stream<Record> {
      */
     static final Comparator<Record> HEADLESS_RECORD_COMPARATOR = (a, b) -> {
         for (int i = 0; i < a.values.length; i++) {
-            int v = Utils.DEFAULT_COMPARATOR.compare(a.values[i], b.values[i]);
+            int v = Utils.NULLS_FIRST_COMPARATOR.compare(a.values[i], b.values[i]);
             if (v != 0)
                 return v;
         }

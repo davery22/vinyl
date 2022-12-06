@@ -1580,6 +1580,70 @@ public class RecordStreamTest {
         assertEquals(expected, data);
     }
     
+    @Test
+    void testRecursiveQuery() {
+        Field<Integer> staffId = new Field<>("staffId");
+        Field<Integer> managerId = new Field<>("managerId");
+        Field<String> firstName = new Field<>("firstName");
+        RecordSet staff = unsafeRecordSet(new Object[][]{
+            { staffId, managerId, firstName },
+            {  9,    7, "Layla" },
+            {  2,    1, "Mireya" },
+            {  6,    5, "Marcelene" },
+            {  5,    1, "Jannette" },
+            { 11,   12, "Ricardo" },
+            {  3,    2, "Genna" },
+            {  8,    1, "Kali" },
+            {  1, null, "Fabiola" },
+            { 12,   13, "Puget" },
+            {  7,    5, "Venita" },
+            { 10,    7, "Bernadine" },
+            {  4,    2, "Virgie" },
+        });
+        
+        // Some inefficiencies felt here:
+        // 1. We need to materialize a RecordSet in each iteration, so that it can be reused by the next iteration and the stream itself.
+        // 2. We need to traverse the full original dataset in each iteration, due to lack of persistent indexes.
+        // 3. We need to copy records on the way out, to prove that they all have the same header.
+        
+        RecordSet data = RecordStream
+            .aux(
+                Stream.iterate(
+                    staff.stream()
+                        .filter(record -> record.get(managerId) == null)
+                        .toRecordSet(),
+                    managers -> !managers.isEmpty(),
+                    managers -> staff.stream()
+                        .join(managers.stream(),
+                              on -> on.eq(on.left(managerId), on.right(staffId)),
+                              JoinAPI.Select::leftAllFields
+                        )
+                        .toRecordSet()
+                )
+            )
+            .flatMap(RecordSet::stream)
+            .mapToRecord(staff.header()::selectAllFields)
+            .sorted(Comparator.comparing(managerId::get, Comparator.nullsFirst(Comparator.naturalOrder()))
+                              .thenComparing(staffId::get))
+            .toRecordSet();
+    
+        RecordSet expected = unsafeRecordSet(new Object[][]{
+            { staffId, managerId, firstName },
+            {  1, null, "Fabiola" },
+            {  2,    1, "Mireya" },
+            {  5,    1, "Jannette" },
+            {  8,    1, "Kali" },
+            {  3,    2, "Genna" },
+            {  4,    2, "Virgie" },
+            {  6,    5, "Marcelene" },
+            {  7,    5, "Venita" },
+            {  9,    7, "Layla" },
+            { 10,    7, "Bernadine" },
+        });
+        
+        assertEquals(expected, data);
+    }
+    
     @SuppressWarnings({"unchecked", "rawtypes"})
     private RecordSet unsafeRecordSet(Object[][] arr) {
         Object[] fields = arr[0];

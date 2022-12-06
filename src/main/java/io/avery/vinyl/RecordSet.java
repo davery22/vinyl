@@ -53,10 +53,28 @@ public class RecordSet {
     /**
      * Returns a sequential {@code Stream} with this record-set as its source.
      *
-     * @return a sequential {@code Stream} over the records in this record-set.
+     * @return a sequential {@code Stream} over the records in this record-set
      */
     public RecordStream stream() {
         return new RecordStream(header, Arrays.stream(records).map(values -> new Record(header, values)));
+    }
+    
+    /**
+     * Returns the number of records in this record-set.
+     *
+     * @return the number of records in this record-set
+     */
+    public int size() {
+        return records.length;
+    }
+    
+    /**
+     * Returns {@code true} if this record-set contains no records.
+     *
+     * @return {@code true} if this record-set contains no records
+     */
+    public boolean isEmpty() {
+        return records.length == 0;
     }
     
     /**

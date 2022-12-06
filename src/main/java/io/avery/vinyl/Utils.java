@@ -31,17 +31,14 @@ import java.util.Comparator;
  */
 class Utils {
     /**
-     * Totally unchecked cast, for when a normal cast is illegal, but we know the cast is safe.
+     * Encoding of null.
      */
-    @SuppressWarnings("unchecked")
-    static <T> T cast(Object o) {
-        return (T) o;
-    }
+    private static final Comparable<Object> NIL = o -> 0;
     
     /**
      * Natural order, nulls first/lowest.
      */
-    static Comparator<Object> DEFAULT_COMPARATOR = cast((Comparator<Comparable<Object>>) (a, b) -> {
+    static Comparator<Object> NULLS_FIRST_COMPARATOR = cast((Comparator<Comparable<Object>>) (a, b) -> {
         if (a == b)
             return 0;
         if (a == null)
@@ -51,7 +48,36 @@ class Utils {
         return a.compareTo(b);
     });
     
+    /**
+     * Natural order, nulls first/lowest (nulls encoded as NIL).
+     */
+    static Comparator<Object> NILS_FIRST_COMPARATOR = cast((Comparator<Comparable<Object>>) (a, b) -> {
+        if (a == b)
+            return 0;
+        if (a == NIL)
+            return -1;
+        if (b == NIL)
+            return 1;
+        return a.compareTo(b);
+    });
+    
+    /**
+     * Totally unchecked cast, for when a normal cast is illegal, but we know the cast is safe.
+     */
+    @SuppressWarnings("unchecked")
+    static <T> T cast(Object o) {
+        return (T) o;
+    }
+    
     static Field<?> tempField() {
         return new Field<>("<anonymous>");
+    }
+    
+    static Object encodeNull(Object o) {
+        return o == null ? NIL : o;
+    }
+    
+    static Object decodeNull(Object o) {
+        return o == NIL ? null : o;
     }
 }
